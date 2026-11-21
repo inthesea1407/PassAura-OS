@@ -76,4 +76,5 @@ mod tests {
         }
     }
 }
+pub mod platform_adapter;
 pub mod security;
