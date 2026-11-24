@@ -339,7 +339,3 @@ Important remaining issue
 The checksum manifest only establishes that the binary matches the checksum file. If an attacker can replace both files, this check will not detect it. The stronger next step is verifying an independently trusted release signature before first boot, rather than treating the local checksum manifest as a trust anchor.
 
 No repository files were modified. All four requested files are provided above; no continuation prompt is needed.
-
-ChatGPT can make mistakes. Check important info.
-Latest response
-Context window full
