@@ -1,0 +1,28 @@
+name: supabase-sql-tests
+# Runs the SQL migrations + pgTAP tests on a throwaway Postgres with a small Supabase shim.
+on:
+  workflow_dispatch:
+  push:
+    paths: ["supabase/**", ".github/workflows/supabase-tests.yml"]
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Postgres + pgTAP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql postgresql-contrib postgresql-server-dev-all libtap-parser-sourcehandler-pgtap-perl
+          V=$(ls /usr/lib/postgresql | sort -n | tail -1)
+          sudo apt-get install -y postgresql-$V-pgtap
+          sudo systemctl start postgresql || sudo pg_ctlcluster $V main start
+          sudo -u postgres psql -c "create database t"
+      - name: Apply shim + migrations
+        run: |
+          P="sudo -u postgres psql -v ON_ERROR_STOP=1 -d t"
+          $P -f supabase/ci/shim.sql
+          for f in supabase/migrations/*.sql; do echo "== $f"; $P -f "$f"; done
+      - name: Run pgTAP tests
+        run: |
+          sudo -u postgres psql -d t -f supabase/tests/run.sql 2>&1 | tee /tmp/tap.txt
+          ! grep -E "^not ok|Looks like you failed|ERROR" /tmp/tap.txt
