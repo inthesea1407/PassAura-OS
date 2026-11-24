@@ -32,4 +32,5 @@ grant execute on function public.register_device(text,text) to service_role;
 
 alter function public.admin_issue_premium_key(text,int,text,text) set search_path = pg_catalog, public, extensions;
 alter function public.admin_issue_invites(int,uuid) set search_path = pg_catalog, public, extensions;
+alter function public.redeem_premium_key(text,uuid) set search_path = pg_catalog, public, extensions;  -- 0003 used 'public' only, so digest() was not found
 commit;
