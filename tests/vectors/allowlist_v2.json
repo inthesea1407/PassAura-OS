@@ -1,0 +1,573 @@
+{
+  "canonical_form": "document minus signature_hex, JSON with sorted keys, no whitespace; signature = Ed25519 over those bytes",
+  "cases": [
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "ok",
+      "name": "valid",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "ok",
+      "name": "valid_same_sequence_same_digest",
+      "now": 1000100,
+      "stored": {
+        "digest_hex": "5f3aeb93cb25ef44a372b7869c04f70c5883085a53b2299ad406b4ccf7feeb1b",
+        "sequence": 5
+      }
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "ok",
+      "name": "valid_higher_sequence",
+      "now": 1000100,
+      "stored": {
+        "digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "sequence": 4
+      }
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "DowngradeRejected",
+      "name": "downgrade_lower_sequence",
+      "now": 1000100,
+      "stored": {
+        "digest_hex": "5f3aeb93cb25ef44a372b7869c04f70c5883085a53b2299ad406b4ccf7feeb1b",
+        "sequence": 6
+      }
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "DigestMismatch",
+      "name": "same_sequence_different_digest",
+      "now": 1000100,
+      "stored": {
+        "digest_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+        "sequence": 5
+      }
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "Expired",
+      "name": "expired",
+      "now": 1086400,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "NotYetValid",
+      "name": "not_yet_valid",
+      "now": 999999,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "SignatureInvalid",
+      "name": "tampered_entry",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 6,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "SignatureInvalid",
+      "name": "tampered_sequence",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "e38b8ca470bae49523e86483dc721a73305431ee3a7cc15fd60608f43b07bd0026fdfb372dc99b6be0b0d1e16368751fa59c8c8436f676749841cf1e06bbbd08",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 3
+      },
+      "expect": "UnsupportedVersion",
+      "name": "unsupported_version",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "b1351ea402bd6be1f395c0c0387a5a9eb48db5ef9da352fa0bb63ef8584eab9ac433b48645cf002ffb9fd085b26e47823261cb14aaccd660a7a70fe6771a0e05",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "SignatureInvalid",
+      "name": "signature_from_other_key",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": true,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "4f32f44f4938299b2e1f2d14500c38a03f2fdce5657dfb0a692d1b00281850498a9f5cc25beab1fb3357b314ba6ad615cd3ab15f4e2ed3a7316101ac7ab6ff00",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "SignedByRetired",
+      "name": "signer_retired",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "b0779abbaff343d7fd42699778a56304e50c190de3c979091431742df61c5943c807a349ec9323d3f486280db6c11eba26d14136784d6ddf45f29c6fc8e68807",
+        "signed_by": "ed25519:0000000000000000",
+        "version": 2
+      },
+      "expect": "SignedByUnknown",
+      "name": "signer_not_in_keyring",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": []
+        },
+        "sequence": 5,
+        "signature_hex": "d4f232b58867e32dba1d573b1b2365669e6f6077f83d928616a486b588ecb7d107dcda0cb54d343fba90ee794117594c346011e5febabb1dceec12c162af3e0c",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "KeyringEmpty",
+      "name": "empty_keyring",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 1050000,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "0c0f238d7595c098476bb5bc93de87fb2e7a040f623b260f9bdbe0d4428609a5f4df3ba260018f02cab54af4331b59b15dd4bf5c621bb653dedec030ed688606",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "SignedByNotValidAt",
+      "name": "key_not_valid_at_issue_time",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1000000,
+        "format": "passaura-allowlist",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "8fd711df66c073a4891bc8181f7f4ea8b2252a63832d451ac422771bf6441398dfc3850e10c0bea964465494561b6f4022fa542515ac92ec4c1be5f3440ebe0e",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "InvalidWindow",
+      "name": "empty_validity_window",
+      "now": 1000100,
+      "stored": null
+    },
+    {
+      "document": {
+        "entries": [
+          {
+            "name": "ripgrep",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "version": "14.1.0"
+          }
+        ],
+        "expires_at": 1086400,
+        "format": "other",
+        "issued_at": 1000000,
+        "keyring": {
+          "keys": [
+            {
+              "key_id": "ed25519:ea4a6c63e29c520a",
+              "public_key_hex": "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c",
+              "retired": false,
+              "valid_from": 0,
+              "valid_until": 2000000
+            }
+          ]
+        },
+        "sequence": 5,
+        "signature_hex": "9a59d99ebda7ec96211ef04dd4da1f2034176d532b61df9bcd6c6ecbdea56473c4ff4501efa338c22369224f38fb9f4a0ab184d1ac71a78e15a6542e1b8f7c0c",
+        "signed_by": "ed25519:ea4a6c63e29c520a",
+        "version": 2
+      },
+      "expect": "BadFormat",
+      "name": "wrong_format",
+      "now": 1000100,
+      "stored": null
+    }
+  ],
+  "description": "PassAura allowlist v2 conformance vectors. Generated by the Rust implementation; not independently verified. Test keys are public.",
+  "digest": "SHA-256 of the same canonical bytes, lowercase hex",
+  "signing_seed_hex": "0707070707070707070707070707070707070707070707070707070707070707"
+}

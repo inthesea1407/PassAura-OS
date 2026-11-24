@@ -346,7 +346,7 @@ pub fn verify_v2(
     Ok(())
 }
 
-fn canonical_payload_bytes(doc: &V2Allowlist) -> Result<Vec<u8>, V2Error> {
+pub fn canonical_payload_bytes(doc: &V2Allowlist) -> Result<Vec<u8>, V2Error> {
     let v = canonical_value(doc)?;
     serde_json::to_vec(&v).map_err(|e| V2Error::Json(e.to_string()))
 }

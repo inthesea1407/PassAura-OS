@@ -1,0 +1,206 @@
+{
+  "cases": [
+    {
+      "expect": "ok",
+      "name": "valid",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "ok",
+      "name": "empty",
+      "records": []
+    },
+    {
+      "expect": "HashMismatch",
+      "name": "event_tampered",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_allowed",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "HashMismatch",
+      "name": "timestamp_tampered",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1001
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "OutOfOrder",
+      "name": "middle_record_removed",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "OutOfOrder",
+      "name": "records_reordered",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "PrevHashMismatch",
+      "name": "prev_hash_wrong",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "BadSequence",
+      "name": "first_record_removed",
+      "records": [
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        },
+        {
+          "event": "key_rotated",
+          "hash": "191c7cbd57e3246e55bd9e9b924730368e528fca15bab6de3c0d96dc3d82fb6f",
+          "prev_hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "seq": 3,
+          "timestamp": 1000
+        }
+      ]
+    },
+    {
+      "expect": "ok",
+      "name": "tail_truncated_undetectable",
+      "records": [
+        {
+          "event": "gate_allowed",
+          "hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+          "seq": 1,
+          "timestamp": 1000
+        },
+        {
+          "event": "gate_denied",
+          "hash": "66f4425030d62c30057bd48d6ed7b5d940f2758a418a9a0c1d2a6cf4495d661a",
+          "prev_hash": "8ad8dcc1846dabff4677cecab3b9e53ec7aef8c780acdb11bc905c72b94eee99",
+          "seq": 2,
+          "timestamp": 1000
+        }
+      ]
+    }
+  ],
+  "description": "Audit hash chain vectors from the Rust implementation; not independently verified. Truncating the newest records is NOT detected without an external anchor.",
+  "hash": "hex(SHA-256(\"{seq}\\n{timestamp}\\n{event}\\n{prev_hash}\\n\")); seq starts at 1"
+}
