@@ -7,6 +7,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
+import com.passaura.os.R
 import com.passaura.os.util.AppPreferences
 
 class MainActivity : ComponentActivity() {
@@ -19,8 +28,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    if (prefs.isRegistered) {
-                        SettingsScreen(prefs = prefs)
+                    var showStatus by remember { mutableStateOf(false) }
+                    if (prefs.isRegistered && showStatus) {
+                        ProvisioningStatusScreen(prefs = prefs, onBack = { showStatus = false })
+                    } else if (prefs.isRegistered) {
+                        Column {
+                            TextButton(onClick = { showStatus = true }) {
+                                Text(stringResource(R.string.provisioning_status_title))
+                            }
+                            SettingsScreen(prefs = prefs)
+                        }
                     } else {
                         FirstRunScreen(prefs = prefs)
                     }
