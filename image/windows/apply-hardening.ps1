@@ -9,7 +9,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [switch]$Apply,
-    [switch]$DryRun = $true,
+    [switch]$DryRun,
     [string]$ProfileDir = $PSScriptRoot
 )
 
@@ -78,7 +78,7 @@ function Invoke-PosWindowsHardening {
     }
 }
 
-$effectiveMutate = [bool]$Apply -and (-not $DryRun -or $PSBoundParameters.ContainsKey('Apply'))
+$effectiveMutate = [bool]$Apply -and (-not $DryRun)
 if (-not $PSBoundParameters.ContainsKey('Apply')) {
     $effectiveMutate = $false
 }

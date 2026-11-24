@@ -17,14 +17,14 @@ class PolicyEnforcer(
      * (installer hooks, SELinux, accessibility service denial), which is not built yet.
      * 
      * Requires device-owner provisioning via ADB or QR code.
-     * setPermittedAutofillService requires API 26+.
+     * setCredentialManagerPolicy requires API 34+ (older devices throw).
      */
     fun enforcePassAuraOnly() {
         if (!dpmWrapper.isDeviceOwnerApp(adminComponent.packageName)) {
             throw IllegalStateException("App is not provisioned as device owner")
         }
 
-        dpmWrapper.setPermittedAutofillService(adminComponent, premiumPackage)
+        dpmWrapper.setCredentialManagerAllowlist(adminComponent, setOf(premiumPackage))
         dpmWrapper.addUserRestriction(adminComponent, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES)
         dpmWrapper.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER)
     }

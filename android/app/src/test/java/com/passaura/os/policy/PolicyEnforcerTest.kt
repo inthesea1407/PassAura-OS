@@ -23,13 +23,13 @@ class PolicyEnforcerTest {
     }
 
     @Test
-    fun `enforcePassAuraOnly sets autofill and checks device owner`() {
+    fun `enforcePassAuraOnly sets credential manager allowlist and checks device owner`() {
         every { dpmWrapper.isDeviceOwnerApp("com.passaura.os") } returns true
 
         enforcer.enforcePassAuraOnly()
 
         verify { dpmWrapper.isDeviceOwnerApp("com.passaura.os") }
-        verify { dpmWrapper.setPermittedAutofillService(adminComponent, premiumPackage) }
+        verify { dpmWrapper.setCredentialManagerAllowlist(adminComponent, setOf(premiumPackage)) }
         verify { dpmWrapper.addUserRestriction(adminComponent, UserManager.DISALLOW_INSTALL_UNKNOWN_SOURCES) }
         verify { dpmWrapper.addUserRestriction(adminComponent, UserManager.DISALLOW_ADD_USER) }
     }

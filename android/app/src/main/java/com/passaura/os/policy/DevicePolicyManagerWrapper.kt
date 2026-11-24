@@ -4,6 +4,7 @@ import android.content.ComponentName
 
 interface DevicePolicyManagerWrapper {
     fun isDeviceOwnerApp(packageName: String): Boolean
-    fun setPermittedAutofillService(admin: ComponentName, packageName: String?)
+    /** Credential manager allowlist (DevicePolicyManager.setCredentialManagerPolicy, API 34+). */
+    fun setCredentialManagerAllowlist(admin: ComponentName, packages: Set<String>)
     fun addUserRestriction(admin: ComponentName, restriction: String)
 }
