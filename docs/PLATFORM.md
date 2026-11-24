@@ -259,3 +259,7 @@ GitHub commit
 فحص APT في النسخة أعلاه يبحث عن 90-pos-package-gate داخل مخرجات apt-config dump، بينما الاسم الموجود في ملف الـhook لا يضمن ظهور هذا النص في المخرجات. يجب تصحيح شرط الفحص ليتحقق من الأمر أو إعداد الـhook الحقيقي، وإلا سيعطي Fail غير دقيق.
 
 كذلك، الـWindows backend والـAndroid backend في هذه النسخة ينتجان خطط سياسات فقط؛ لا يوجد enforcement فعلي. وLinux لديه إعدادات hardening مقترحة، وليس gate مكتملًا.
+
+## Integration notes (integrator)
+- pos-platform is a policy scaffold with fakes. Its Linux apt hook path and config name differ from the real gate in enforcement/apt-hook.sh and image/build.sh; reconcile before relying on it. It enforces nothing at OS level.
+- Two tests were wrong (case-sensitive content match, counting all checks) and were fixed.

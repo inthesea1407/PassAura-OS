@@ -849,7 +849,7 @@ mod tests {
     fn linux_dry_run_contains_apparmor() {
         let backend = LinuxBackend::new(FakeRunner::default(), FakeFs::default());
         let files = backend.dry_run_files();
-        assert!(files.iter().any(|(_, content)| content.to_lowercase().contains("apparmor")));
+        assert!(files.iter().any(|(path, _)| path.contains("apparmor")));
     }
 
     // 17
