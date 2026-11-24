@@ -15,6 +15,6 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putString("premium_until", value).apply()
         
     var isRegistered: Boolean
-        get() = deviceId != null
+        get() = !deviceId.isNullOrBlank()
         set(value) = if (!value) prefs.edit().remove("device_id").remove("premium_until").apply() else Unit
 }
