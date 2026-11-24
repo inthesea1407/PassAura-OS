@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            executable_suffix: ""
+          - os: windows-latest
+            platform: windows-x86_64
+            executable_suffix: ".exe"
+
+    runs-on: ${{ matrix.os }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Rust dependency cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set SOURCE_DATE_EPOCH
+        shell: bash
+        run: |
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct "$GITHUB_SHA")" >> "$GITHUB_ENV"
+
+      - name: Build release binaries
+        run: cargo build --locked --release --bin pos-gate --bin pos-cli
+
+      - name: Prepare release files (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p release-files
+          cp target/release/pos-gate release-files/pos-gate-linux-x86_64
+          cp target/release/pos-cli release-files/pos-cli-linux-x86_64
+
+      - name: Prepare release files (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release-files | Out-Null
+          Copy-Item target/release/pos-gate.exe release-files/pos-gate-windows-x86_64.exe
+          Copy-Item target/release/pos-cli.exe release-files/pos-cli-windows-x86_64.exe
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: release-files/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-files
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          cd release-files
+          sha256sum \
+            pos-gate-linux-x86_64 \
+            pos-cli-linux-x86_64 \
+            pos-gate-windows-x86_64.exe \
+            pos-cli-windows-x86_64.exe \
+            > SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          gh release create "$TAG" \
+            release-files/pos-gate-linux-x86_64 \
+            release-files/pos-cli-linux-x86_64 \
+            release-files/pos-gate-windows-x86_64.exe \
+            release-files/pos-cli-windows-x86_64.exe \
+            release-files/SHA256SUMS \
+            --title "PassAura OS $TAG" \
+            --generate-notes

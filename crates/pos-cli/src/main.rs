@@ -157,6 +157,13 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
         return ExitCode::from(2);
     }
 
+    if package.is_empty()
+        || package.starts_with('-')
+        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':'))
+    {
+        eprintln!("invalid package identifier: {package}");
+        return ExitCode::from(4);
+    }
     if !is_allowed(&doc, &package) {
         eprintln!("not allowed: {package} is not in the allowlist");
         return ExitCode::from(3);
@@ -210,7 +217,7 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
 
     let private_hex = hex::encode(signing.to_bytes());
     let public_hex = hex::encode(verifying.to_bytes());
-    let key_id = format!("ed25519:{}", &public_hex[..16]);
+    let key_id = format!("ed25519:{}", public_hex.get(..16).unwrap_or(&public_hex));
 
     let keyring = serde_json::json!({
         "keys": [ { "key_id": key_id, "public_key_hex": public_hex } ]
