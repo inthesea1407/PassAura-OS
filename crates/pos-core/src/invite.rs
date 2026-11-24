@@ -16,6 +16,7 @@ pub enum InviteError {
     AlreadyRedeemed,
     AlreadyMember,
     SeedClosed,
+    InviterRevoked,
 }
 
 #[derive(Debug)]
@@ -97,6 +98,10 @@ impl InviteBook {
 
     pub fn issue(&mut self, inviter: &str, code: &str) -> Result<(), InviteError> {
         let used = *self.members.get(inviter).ok_or(InviteError::UnknownInviter)?;
+        // A revoked member must not keep growing the network.
+        if self.revoked.contains(inviter) {
+            return Err(InviteError::InviterRevoked);
+        }
         if used >= INVITES_PER_MEMBER {
             return Err(InviteError::QuotaExhausted);
         }
@@ -202,5 +207,19 @@ mod tests {
         b.issue("f", "c").unwrap();
         assert_eq!(b.issue("g", "c"), Err(InviteError::DuplicateCode));
         assert_eq!(b.redeem("c", "g"), Err(InviteError::AlreadyMember));
+    }
+}
+
+#[cfg(test)]
+mod revoked_inviter_tests {
+    use super::*;
+
+    #[test]
+    fn revoked_member_cannot_issue_invites() {
+        let mut b = InviteBook::new();
+        b.add_seed_member("a");
+        assert!(b.revoke_member("a"));
+        assert_eq!(b.issue("a", "code-1"), Err(InviteError::InviterRevoked));
+        assert_eq!(b.redeem("code-1", "x"), Err(InviteError::UnknownCode));
     }
 }
