@@ -278,6 +278,13 @@ impl RollbackStore {
         // Re-read it so a stale in-memory value cannot let an older document
         // overwrite a newer one. A missing file keeps the in-memory state.
         self.refresh_from_disk()?;
+        // An empty digest would later let a different document reuse the
+        // same sequence number, so it is never accepted.
+        if candidate_digest_hex.is_empty() {
+            return Err(RollbackError::CorruptState(
+                "candidate digest must not be empty".to_string(),
+            ));
+        }
         self.check_candidate(candidate_seq, candidate_digest_hex)?;
 
         let should_write = candidate_seq > self.last_seq
@@ -522,6 +529,16 @@ mod tests {
 #[cfg(test)]
 mod stale_state_tests {
     use super::*;
+
+    #[test]
+    fn empty_digest_is_rejected_and_nothing_is_written() {
+        let dir = std::env::temp_dir().join(format!("pos-rb-empty-{}", std::process::id()));
+        let path = dir.join("state.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut a = RollbackStore::open(&path).unwrap();
+        assert!(a.accept_and_persist(5, "", Some(1)).is_err());
+        assert_eq!(RollbackStore::open(&path).unwrap().last_seq(), 0);
+    }
 
     #[test]
     fn second_handle_cannot_roll_back_state_written_by_first() {
