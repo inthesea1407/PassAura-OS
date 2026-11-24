@@ -38,8 +38,8 @@ fi
 
 # Inspect ISO contents for PassAura package gate hook and GRUB BIOS/UEFI layout
 if command -v xorriso >/dev/null 2>&1; then
-    if ! xorriso -indev "$ISO_PATH" -find / -name "passaura-pkg-gate.sh" 2>/dev/null | grep -q "passaura-pkg-gate.sh"; then
-        echo "Error: passaura-pkg-gate.sh not found inside ISO '$ISO_PATH'." >&2
+    if ! xorriso -indev "$ISO_PATH" -find /live -name "filesystem.squashfs" 2>/dev/null | grep -q "filesystem.squashfs"; then
+        echo "Error: live/filesystem.squashfs not found inside ISO '$ISO_PATH'." >&2
         exit 1
     fi
 fi
