@@ -211,6 +211,20 @@ impl RollbackStore {
         })
     }
 
+    fn refresh_from_disk(&mut self) -> Result<(), RollbackError> {
+        if !self.state_path.exists() {
+            return Ok(());
+        }
+        let raw = fs::read_to_string(&self.state_path)?;
+        let record: RollbackRecord = serde_json::from_str(&raw)
+            .map_err(|e| RollbackError::CorruptState(format!("invalid JSON: {e}")))?;
+        if record.last_seq >= self.last_seq {
+            self.last_seq = record.last_seq;
+            self.last_digest_hex = record.last_digest_hex;
+        }
+        Ok(())
+    }
+
     pub fn last_seq(&self) -> u64 {
         self.last_seq
     }
@@ -260,6 +274,10 @@ impl RollbackStore {
         now_unix: Option<i64>,
         ops: &O,
     ) -> Result<u64, RollbackError> {
+        // Another process may have advanced the state since we opened it.
+        // Re-read it so a stale in-memory value cannot let an older document
+        // overwrite a newer one. A missing file keeps the in-memory state.
+        self.refresh_from_disk()?;
         self.check_candidate(candidate_seq, candidate_digest_hex)?;
 
         let should_write = candidate_seq > self.last_seq
@@ -498,5 +516,24 @@ mod tests {
         assert_eq!(fs::read_to_string(&target).unwrap(), "new-state");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod stale_state_tests {
+    use super::*;
+
+    #[test]
+    fn second_handle_cannot_roll_back_state_written_by_first() {
+        let dir = std::env::temp_dir().join(format!("pos-rb-stale-{}", std::process::id()));
+        let path = dir.join("state.json");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut a = RollbackStore::open(&path).unwrap();
+        let mut b = RollbackStore::open(&path).unwrap(); // both see seq 0
+        a.accept_and_persist(5, "aa", Some(1)).unwrap();
+        // b still thinks seq is 0, but disk says 5: seq 3 must be rejected.
+        let r = b.accept_and_persist(3, "bb", Some(2));
+        assert!(matches!(r, Err(RollbackError::DowngradeRejected { .. })), "{r:?}");
+        assert_eq!(RollbackStore::open(&path).unwrap().last_seq(), 5);
     }
 }

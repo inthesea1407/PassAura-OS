@@ -65,6 +65,7 @@ pub enum AllowlistError {
     DuplicateEntry,
     TooManyEntries,
     InvalidKeyId,
+    AmbiguousKey,
 }
 
 impl std::fmt::Display for AllowlistError {
@@ -219,10 +220,12 @@ pub fn verify_allowlist(
         return Err(AllowlistError::Expired);
     }
 
-    let key = public_keys
-        .iter()
-        .find(|k| k.key_id == doc.key_id)
-        .ok_or(AllowlistError::UnknownKey)?;
+    // Two trusted keys with the same id make the keyring ambiguous: fail closed.
+    let mut matching = public_keys.iter().filter(|k| k.key_id == doc.key_id);
+    let key = matching.next().ok_or(AllowlistError::UnknownKey)?;
+    if matching.next().is_some() {
+        return Err(AllowlistError::AmbiguousKey);
+    }
 
     if let Some(retire_at) = key.retire_at {
         if now >= retire_at {
@@ -322,6 +325,16 @@ mod tests {
         sign_allowlist(&key, &mut document).unwrap();
 
         verify_allowlist(&[trusted("key-1", &key, None)], &document, 200).unwrap();
+    }
+
+    #[test]
+    fn duplicate_trusted_key_ids_are_ambiguous() {
+        let key = keypair();
+        let other = keypair();
+        let mut document = doc("key-1");
+        sign_allowlist(&key, &mut document).unwrap();
+        let ring = [trusted("key-1", &key, None), trusted("key-1", &other, None)];
+        assert_eq!(verify_allowlist(&ring, &document, 200), Err(AllowlistError::AmbiguousKey));
     }
 
     #[test]
