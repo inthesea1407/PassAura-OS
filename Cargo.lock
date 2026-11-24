@@ -700,6 +700,7 @@ dependencies = [
  "clap",
  "ed25519-dalek",
  "hex",
+ "pos-core",
  "pos-gate",
  "predicates",
  "rand 0.8.8",

@@ -277,3 +277,22 @@ fn install_binary_garbage_does_not_panic() {
         .assert()
         .code(2);
 }
+
+#[test]
+fn audit_verify_and_tamper() {
+    use pos_core::audit::{AuditEvent, AuditLog, FixedClock};
+    let dir = std::env::temp_dir().join(format!("pos-audit-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = dir.join("a.jsonl");
+    let mut log = AuditLog::with_clock(FixedClock(100));
+    log.append(AuditEvent::GateAllowed);
+    log.append(AuditEvent::GateDenied);
+    log.save_to_file(&f).unwrap();
+    let bin = || assert_cmd::Command::cargo_bin("pos-cli").unwrap();
+    bin().args(["audit", "verify"]).arg(&f).assert().code(0);
+    bin().args(["audit", "tail", "-n", "1"]).arg(&f).assert().code(0);
+    let t = std::fs::read_to_string(&f).unwrap().replace("gate_denied", "gate_allowed");
+    std::fs::write(&f, t).unwrap();
+    bin().args(["audit", "verify"]).arg(&f).assert().code(2);
+    bin().args(["audit", "verify"]).arg(dir.join("missing")).assert().code(3);
+}

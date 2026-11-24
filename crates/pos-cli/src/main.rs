@@ -30,6 +30,50 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum AuditCmd {
+    /// Check the hash chain. Exit 0 ok, 2 tampered/corrupt, 3 unreadable.
+    Verify { file: PathBuf },
+    /// Print the last N records (default 10).
+    Tail {
+        file: PathBuf,
+        #[arg(short = 'n', default_value_t = 10)]
+        n: usize,
+    },
+}
+
+fn cmd_audit(action: AuditCmd) -> ExitCode {
+    use pos_core::audit::{AuditLog, SystemClock};
+    let (file, tail) = match &action {
+        AuditCmd::Verify { file } => (file, None),
+        AuditCmd::Tail { file, n } => (file, Some(*n)),
+    };
+    let log = match AuditLog::load_from_file(file, SystemClock) {
+        Ok(l) => l,
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            eprintln!("audit log INVALID: {e}");
+            return ExitCode::from(2);
+        }
+        Err(e) => {
+            eprintln!("error: cannot read {}: {e}", file.display());
+            return ExitCode::from(3);
+        }
+    };
+    match tail {
+        None => {
+            println!("audit chain OK: {} records (head {})", log.records().len(), log.head_hash());
+            println!("note: a hash chain cannot show that the newest records were not removed.");
+        }
+        Some(n) => {
+            let r = log.records();
+            for rec in &r[r.len().saturating_sub(n.max(1))..] {
+                println!("{} {} {:?} {}", rec.seq, rec.timestamp, rec.event, rec.hash);
+            }
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+#[derive(Subcommand)]
 enum Cmd {
     /// Verify an allowlist against a keyring.
     Verify {
@@ -63,6 +107,11 @@ enum Cmd {
         /// Output path for the signed allowlist
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Verify or show an audit log (JSON lines, hash-chained).
+    Audit {
+        #[command(subcommand)]
+        action: AuditCmd,
     },
     /// Generate a fresh ed25519 keypair into a directory.
     Keygen {
@@ -271,5 +320,6 @@ fn main() -> ExitCode {
         Cmd::Install { package, allowlist, keyring, dry_run } => cmd_install(package, allowlist, keyring, dry_run),
         Cmd::Sign { allowlist, private_key, out } => cmd_sign(allowlist, private_key, out),
         Cmd::Keygen { out } => cmd_keygen(out),
+        Cmd::Audit { action } => cmd_audit(action),
     }
 }
