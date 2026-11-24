@@ -58,7 +58,12 @@ pub fn classify(caps: &[Capability]) -> AppCategory {
 pub fn enforce(app_id: &str, caps: &[Capability], licensed: bool, _op: Operation) -> Verdict {
     match classify(caps) {
         AppCategory::PasswordManager => {
-            if category_allowed(AppCategory::PasswordManager, app_id, licensed) {
+            // Pin the id here too, so loosening category_allowed later cannot
+            // let another vault through by accident.
+            if app_id == PASSWORD_MANAGER_ID
+                && licensed
+                && category_allowed(AppCategory::PasswordManager, app_id, licensed)
+            {
                 Verdict::Allow
             } else if app_id == PASSWORD_MANAGER_ID {
                 Verdict::Block("PassAura Premium requires active membership")
