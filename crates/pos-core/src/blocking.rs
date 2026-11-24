@@ -41,20 +41,20 @@ pub enum Verdict {
 }
 
 pub fn classify(caps: &[Capability]) -> AppCategory {
-    let pm = caps.iter().any(|c| {
-        matches!(
-            c,
-            Capability::AutofillProvider
-                | Capability::CredentialProvider
-                | Capability::AccessibilityAutofill
-                | Capability::PasswordVaultStore
-        )
+    // Exhaustive on purpose: adding a Capability forces a decision here.
+    let pm = caps.iter().any(|c| match c {
+        Capability::AutofillProvider
+        | Capability::CredentialProvider
+        | Capability::AccessibilityAutofill
+        | Capability::PasswordVaultStore => true,
+        Capability::Camera | Capability::Network => false,
     });
     if pm { AppCategory::PasswordManager } else { AppCategory::Other }
 }
 
 /// Decide an operation for an app. Every password-manager-class app other
 /// than the licensed PassAura one is blocked from every operation.
+#[must_use]
 pub fn enforce(app_id: &str, caps: &[Capability], licensed: bool, _op: Operation) -> Verdict {
     match classify(caps) {
         AppCategory::PasswordManager => {
