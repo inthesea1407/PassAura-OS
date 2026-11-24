@@ -1,4 +1,4 @@
--- 0007: integrator fixes found while merging 0004-0006.
+-- 0009: integrator fixes found while merging 0004-0006.
 -- (1) 0004 register_device set invites.used_by_device to a random uuid to "lock" the row, but that column has a
 --     foreign key to devices(id), so every invite registration would fail. Lock with FOR UPDATE instead.
 -- (2) search_path = '' hides pgcrypto's digest()/gen_random_bytes() (Supabase keeps pgcrypto in "extensions").

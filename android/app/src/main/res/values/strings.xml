@@ -1,3 +1,27 @@
 <resources>
     <string name="app_name">PassAura OS</string>
+    
+    <string name="register_device">Register Device</string>
+    <string name="seed_member_info">Invite Code (leave blank if you are one of the first 1000 seed members)</string>
+    <string name="invite_code_label">Invite Code</string>
+    <string name="register_button">Register</string>
+    
+    <string name="settings_title">PassAura OS Settings</string>
+    <string name="device_id_label">Device ID: %s</string>
+    <string name="premium_until_label">Premium Until: %s</string>
+    <string name="redeem_code_label">Redeem Premium Code</string>
+    <string name="redeem_button">Redeem</string>
+    
+    <string name="error_registration_closed">Registration is currently closed.</string>
+    <string name="error_invite_invalid_or_used">Invite code is invalid or has already been used.</string>
+    <string name="error_device_revoked">This device has been revoked.</string>
+    <string name="error_device_already_registered">This device is already registered.</string>
+    <string name="error_rate_limited">Too many attempts. Please try again later.</string>
+    <string name="error_key_invalid">Premium key is invalid.</string>
+    <string name="error_device_invalid">Device ID is invalid.</string>
+    <string name="error_unknown">An unknown error occurred.</string>
+    
+    <string name="premium_activated">Premium activated!</string>
+    <string name="not_active">Not Active</string>
+    <string name="unknown">Unknown</string>
 </resources>

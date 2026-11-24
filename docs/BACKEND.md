@@ -263,3 +263,97 @@ comment in register/index.ts.
 Everything above is a code change and a test specification; it is not a claim that the
 tests pass. Please run the three command groups in §3 in CI and record the results before
 treating the backend as hardened.
+## Round 2 — Concurrency, indexes, rate-limit cleanup
+
+This section is appended to the Module 3 BACKEND.md. Migrations 0001–0006 are
+unchanged; 0007 and 0008 are new.
+
+### 1. Race-condition tests (`supabase/tests/50_concurrency.sql`)
+
+Three races are covered, each using `dblink` to open a competing session that
+holds a transaction open while the test session runs:
+
+- **One invite, two devices.** Session 2 consumes the invite and commits;
+  session 1 then attempts the same code and must raise `INVITE_INVALID_OR_USED`.
+  Assertion also checks that the winning device exists exactly once.
+- **Seed-limit boundary.** Two sessions both see `count(is_seed) < seed_limit`
+  and both attempt to insert a seed device. The test asserts that the total
+  seed count never exceeds `seed_limit`.
+- **One key, two devices.** Session 2 redeems the key (taking the `FOR UPDATE`
+  lock) and commits; session 1 then attempts the same key and must raise
+  `KEY_INVALID`. Assertion checks the key is bound to exactly one device.
+
+**Caveat on `dblink` and Supabase runtimes:** pgTAP suites that use `dblink`
+for concurrency **work under the Docker runtime** (`supabase start`, then
+`supabase test db`) but **fail under the native runtime**, because native
+Postgres refuses non-superuser `dblink` connections when the server only
+accepts trust auth (supabase/cli#6832). If you run on native, replace the
+`dblink` calls with an external harness that opens two `psql` connections and
+interleaves the transactions manually.
+
+**Likely finding exposed by the seed-boundary test:** `register_device` in
+`0004_fixes.sql` counts seed devices and inserts without an advisory lock or
+a `SELECT ... FOR UPDATE` on a serialization row. Two concurrent calls can both
+pass the count check and both insert as seed, exceeding `seed_limit`. The test
+above is written to **fail loudly** if this happens. If it fails in your
+environment, the fix is a migration `0009` that either:
+  (a) takes `pg_advisory_xact_lock(hashtext('seed_window'))` before the count,
+      or
+  (b) adds a `seed_window` row in `admin_config` and `SELECT ... FOR UPDATE`s it.
+Option (a) is simpler; option (b) is more explicit. I did not add either in this
+round because the brief asked for tests, not a fix, and I wanted the test to
+demonstrate the gap rather than hide it behind a lock that was never tested.
+
+### 2. Indexes (`0007_indexes.sql`)
+
+Only two indexes were added; everything else was deliberately omitted:
+
+- **`invites_open_code_hash_idx`** — partial index on `(code_hash) WHERE
+  used_by_device IS NULL`. The plain btree on `code_hash` (from 0001) serves the
+  equality but cannot index the `IS NULL` predicate. This makes the
+  `register_device` invite lookup index-only for open invites and keeps the
+  index small.
+- **`rate_limits_window_start_idx`** — btree on `(window_start)`. The PK leads
+  with `bucket`, so a range predicate on `window_start` alone forces a seq
+  scan. Both the bounded prune in 0006 and the cron cleanup in 0008 need this.
+
+**Omitted:** a partial index on `invites(id) WHERE used_by_device IS NULL`
+(the PK already covers `id`; admin path is not hot); an index for the seed
+count (table is capped at `seed_limit`); extra indexes on `devices(id)` or
+`premium_keys(key_hash)` (the PK/unique indexes already serve equality).
+Query plans were **not** captured with `EXPLAIN` — the justifications above are
+by inspection, not measurement. Capture plans against a populated DB before
+relying on these indexes.
+
+### 3. Rate-limit cleanup (`0008_ratelimit_cleanup.sql`)
+
+- `cleanup_rate_limits(p_retention_seconds, p_limit)` deletes up to `p_limit`
+  expired rows per call, bounded so it never takes a long lock.
+- `pg_cron` is created in the `extensions` schema and a job
+  `passaura-rate-limit-cleanup` runs every 15 minutes, deleting rows older than
+  24 hours, max 5000 per run. `cron.schedule` is idempotent on jobname, so
+  re-running the migration replaces the schedule rather than duplicating it.
+- `pg_cron` is available on the Supabase free tier; schedules are UTC.
+- The cron job also relies on `rate_limits_window_start_idx` from 0007.
+
+### 4. Remaining findings (severity)
+
+| # | Severity | Finding |
+|---|---|---|
+| R2-F1 | **HIGH** | `register_device` seed-limit count is not serialized. Two concurrent calls at the boundary can both insert as seed, exceeding `seed_limit`. The concurrency test is designed to fail on this. Fix in `0009` (advisory lock or `FOR UPDATE` on a config row). |
+| R2-F2 | **MEDIUM** | The concurrency tests require `dblink`, which does not work on Supabase's native runtime. CI must use the Docker runtime (`supabase test db`) or an external two-session harness. Documented in §1. |
+| R2-F3 | **MEDIUM** | Query plans for `register_device`, `redeem_premium_key`, and `rate_limit_hit` were **not** measured with `EXPLAIN ANALYZE`. The two indexes in 0007 are justified by inspection only. Run `EXPLAIN (ANALYZE, BUFFERS)` against a populated DB before assuming they are sufficient (or not). |
+| R2-F4 | **LOW** | `cleanup_rate_limits` uses `ctid IN (SELECT ctid ... LIMIT n)`. Under heavy concurrent insert/delete this is safe (ctid identifies a physical row version) but can miss rows that were updated between the subquery and the delete; the next cron run catches them. Acceptable for cleanup. |
+| R2-F5 | **LOW** | `cron.job_run_details` grows indefinitely and was **not** cleaned in 0008. Add a second cron job (or extend the existing one) to delete `job_run_details` older than 7 days, per Supabase's own guidance. Not added here to keep 0008 focused on `rate_limits`. |
+| R2-F6 | **LOW** | The concurrency test `50_concurrency.sql` assumes the test session can open a `dblink` connection back to the same database with `current_user`. On Docker this is `postgres` (superuser), so it works. On a hardened setup with `FORCE ROW LEVEL SECURITY` or a restricted role, the dblink session may not see the same rows. Test under the same role configuration as production. |
+
+### 5. What could not be run
+
+- Migrations `0007` and `0008` (no live DB).
+- `50_concurrency.sql` (no `dblink`, no pgTAP, no two-session harness).
+- `EXPLAIN ANALYZE` on the three functions (no populated DB).
+- `cron.schedule` on a live Supabase free-tier project (no project here).
+
+The tests and migrations are specifications; they are not claims that the
+concurrency races pass. Run `50_concurrency.sql` under `supabase test db`
+(Docker) and capture the result before treating the backend as race-free.

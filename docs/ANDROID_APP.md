@@ -24,3 +24,8 @@ adb shell dpm set-device-owner com.passaura.os/.admin.PassAuraDeviceAdminReceive
 - API_URL is still a placeholder. The Edge Functions live at https://<project>.supabase.co/functions/v1/ and must be deployed with JWT verification off (or the app must send the anon key). Owner-gated.
 - No JNI link to pos-android; credential-manager allowlist for API 34 not implemented (only autofill service + user restrictions).
 - Status: nothing run locally. CI result is the evidence.
+
+## Round 2 integration (Qwen)
+- Merged: Arabic/English strings, ErrorMessageMapper (+test), SettingsScreen using string resources.
+- Kept ours over Qwen's copies: the HW_ID_SALT BuildConfig (the salt is public domain separation, not a secret, so no CI secret), the platform theme (Material3 XML theme needs an extra dependency), and the CI workflow (Gradle installed in CI, no wrapper).
+- FirstRunScreen.kt from Qwen was a 9-line stub; the full screen from round 1 is kept.
