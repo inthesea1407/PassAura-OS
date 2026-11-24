@@ -1,0 +1,19 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src https://*.supabase.co; style-src 'self' 'unsafe-inline'">
+<title>PassAura Owner Panel</title>
+<style>body{font:15px system-ui;max-width:880px;margin:1rem auto;padding:0 1rem}section{border:1px solid #ccc;border-radius:8px;padding:1rem;margin:1rem 0}
+table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #eee;padding:4px;text-align:left;font-size:13px;word-break:break-all}button,input,select{font:inherit;padding:4px 8px;margin:2px}pre{background:#f5f5f5;padding:8px;white-space:pre-wrap}.hide{display:none}</style></head><body>
+<h1>PassAura Owner Panel</h1><p id="msg"></p>
+<section id="login"><h2>Owner login</h2><input id="em" type="email" placeholder="email"><input id="pw" type="password" placeholder="password"><button id="doLogin">Sign in</button>
+<div id="mfa" class="hide"><input id="otp" placeholder="6-digit authenticator code" inputmode="numeric"><button id="doOtp">Verify</button></div></section>
+<div id="app" class="hide"><section><h2>Project</h2><select id="proj"></select> <input id="np" placeholder="new slug"><input id="nn" placeholder="name"><button id="addProj">Add project</button></section>
+<section><h2>POS mode</h2>Mode <select id="mode"><option>free-invite</option><option>paid</option><option>closed</option></select>
+Paid scope <select id="scope"><option value="new_only">New members only</option><option value="everyone">Everyone</option></select>
+<label><input type="checkbox" id="paused"> Stop invites</label> <button id="saveCfg">Save</button></section>
+<section><h2>Invites</h2>Count <input id="n" type="number" value="2" min="1" max="50" style="width:4em"> <button id="issue">Issue</button><pre id="codes"></pre><table id="invT"></table></section>
+<section><h2>Registrations</h2><table id="devT"></table></section>
+<section><h2>Premium trial keys</h2>Plan <input id="plan" value="trial" size="8"> Days <input id="days" type="number" value="14" style="width:4em"> <button id="mkKey">Issue</button><pre id="keyOut"></pre><table id="keyT"></table></section>
+<section><h2>Feature flags / pricing (site reads public ones)</h2><input id="fk" placeholder="key e.g. price_monthly"><input id="fv" placeholder='JSON value e.g. 3.99'><button id="saveFlag">Save</button><table id="flagT"></table></section>
+<section><h2>Announcements</h2><input id="at" placeholder="title"><input id="ab" placeholder="body"><button id="addAnn">Add (draft)</button><table id="annT"></table></section>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="app.js"></script></body></html>
