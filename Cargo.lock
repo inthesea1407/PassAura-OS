@@ -725,6 +725,8 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "serde_json",
+ "sha2",
  "toml",
 ]
 
@@ -738,6 +740,7 @@ dependencies = [
  "pos-core",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 

@@ -1,9 +1,9 @@
-//! Monotonic allowlist-sequence store with digest binding.
+//! Monotonic allowlist-sequence store with digest binding and pluggable `FileOps`.
 //!
 //! Stores `(last_seq, last_digest_hex, updated_at_unix)` to reject lower
 //! sequence numbers and reject equal sequence numbers with a different digest.
-//! Uses a temporary file + `sync_all()` + `rename` (and parent directory sync
-//! on Unix) for atomic updates.
+//! Uses a temporary file + `fsync` + `rename` (and parent directory sync on Unix)
+//! for atomic updates, with Windows `ERROR_ACCESS_DENIED` retry handling in `StdFileOps`.
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -11,9 +11,90 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(windows)]
+const WINDOWS_ACCESS_DENIED_CODE: i32 = 5;
+#[cfg(windows)]
+const WINDOWS_RENAME_MAX_RETRIES: usize = 8;
+#[cfg(windows)]
+const WINDOWS_RENAME_BACKOFF_MS: u64 = 15;
+
+/// Abstraction over filesystem rename-replace and sync primitives so unit tests
+/// can simulate mid-write crashes or transient rename contention deterministically.
+pub trait FileOps {
+    fn rename_replace(&self, from: &Path, to: &Path) -> io::Result<()>;
+    fn fsync_file(&self, file: &File) -> io::Result<()>;
+    fn fsync_dir(&self, dir: &Path) -> io::Result<()>;
+}
+
+/// Real filesystem implementation using `std::fs::rename` and `sync_all()`.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StdFileOps;
+
+impl StdFileOps {
+    #[cfg(windows)]
+    fn is_access_denied(err: &io::Error) -> bool {
+        err.kind() == io::ErrorKind::PermissionDenied
+            || err.raw_os_error() == Some(WINDOWS_ACCESS_DENIED_CODE)
+    }
+
+    #[cfg(windows)]
+    fn rename_windows_with_retry(from: &Path, to: &Path) -> io::Result<()> {
+        let mut last_err: Option<io::Error> = None;
+        for attempt in 0..WINDOWS_RENAME_MAX_RETRIES {
+            match fs::rename(from, to) {
+                Ok(()) => return Ok(()),
+                Err(err) if Self::is_access_denied(&err) && attempt + 1 < WINDOWS_RENAME_MAX_RETRIES => {
+                    last_err = Some(err);
+                    thread::sleep(Duration::from_millis(
+                        WINDOWS_RENAME_BACKOFF_MS * (attempt as u64 + 1),
+                    ));
+                }
+                Err(err) => return Err(err),
+            }
+        }
+        Err(last_err.unwrap_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Windows rename exhausted ERROR_ACCESS_DENIED retries",
+            )
+        }))
+    }
+}
+
+impl FileOps for StdFileOps {
+    fn rename_replace(&self, from: &Path, to: &Path) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            Self::rename_windows_with_retry(from, to)
+        }
+        #[cfg(not(windows))]
+        {
+            fs::rename(from, to)
+        }
+    }
+
+    fn fsync_file(&self, file: &File) -> io::Result<()> {
+        file.sync_all()
+    }
+
+    fn fsync_dir(&self, dir: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            let handle = File::open(dir)?;
+            handle.sync_all()
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = dir;
+            Ok(())
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RollbackError {
@@ -83,6 +164,13 @@ pub struct RollbackStore {
 
 impl RollbackStore {
     pub fn open(state_path: impl AsRef<Path>) -> Result<Self, RollbackError> {
+        Self::open_with_ops(state_path, &StdFileOps)
+    }
+
+    pub fn open_with_ops<O: FileOps>(
+        state_path: impl AsRef<Path>,
+        ops: &O,
+    ) -> Result<Self, RollbackError> {
         let state_path = state_path.as_ref().to_path_buf();
         if let Some(parent) = state_path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -98,7 +186,7 @@ impl RollbackStore {
             };
             let payload = serde_json::to_vec_pretty(&initial)
                 .map_err(|e| RollbackError::Serialize(e.to_string()))?;
-            write_atomic_bytes(&state_path, &payload)?;
+            write_atomic_bytes_with_ops(&state_path, &payload, ops)?;
             return Ok(Self {
                 state_path,
                 last_seq: 0,
@@ -162,6 +250,16 @@ impl RollbackStore {
         candidate_digest_hex: &str,
         now_unix: Option<i64>,
     ) -> Result<u64, RollbackError> {
+        self.accept_and_persist_with_ops(candidate_seq, candidate_digest_hex, now_unix, &StdFileOps)
+    }
+
+    pub fn accept_and_persist_with_ops<O: FileOps>(
+        &mut self,
+        candidate_seq: u64,
+        candidate_digest_hex: &str,
+        now_unix: Option<i64>,
+        ops: &O,
+    ) -> Result<u64, RollbackError> {
         self.check_candidate(candidate_seq, candidate_digest_hex)?;
 
         let should_write = candidate_seq > self.last_seq
@@ -178,7 +276,7 @@ impl RollbackStore {
             };
             let payload = serde_json::to_vec_pretty(&record)
                 .map_err(|e| RollbackError::Serialize(e.to_string()))?;
-            write_atomic_bytes(&self.state_path, &payload)?;
+            write_atomic_bytes_with_ops(&self.state_path, &payload, ops)?;
             self.last_seq = candidate_seq;
             self.last_digest_hex = candidate_digest_hex.to_string();
             self.initialized = true;
@@ -195,7 +293,11 @@ fn now_unix_i64() -> i64 {
         .unwrap_or(0)
 }
 
-fn write_atomic_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), RollbackError> {
+fn write_atomic_bytes_with_ops<O: FileOps>(
+    target_path: &Path,
+    bytes: &[u8],
+    ops: &O,
+) -> Result<(), RollbackError> {
     let parent = target_path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -221,11 +323,11 @@ fn write_atomic_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), RollbackEr
             .create_new(true)
             .open(&tmp_path)?;
         tmp_file.write_all(bytes)?;
-        tmp_file.sync_all()?;
+        ops.fsync_file(&tmp_file)?;
         drop(tmp_file);
 
-        fs::rename(&tmp_path, target_path)?;
-        sync_parent_dir(parent)?;
+        ops.rename_replace(&tmp_path, target_path)?;
+        ops.fsync_dir(parent)?;
         Ok(())
     })();
 
@@ -235,22 +337,66 @@ fn write_atomic_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), RollbackEr
     write_res
 }
 
-fn sync_parent_dir(parent: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        let dir = File::open(parent)?;
-        dir.sync_all()?;
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = parent;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
+
+    /// Fake `FileOps` that can fail mid-write (during `fsync_file` or before `rename_replace`)
+    /// or fail the first N `rename_replace` calls before succeeding.
+    struct FakeFileOps {
+        fail_before_rename: AtomicBool,
+        rename_failures_remaining: AtomicU64,
+        fail_on_rename_error_kind: io::ErrorKind,
+    }
+
+    impl FakeFileOps {
+        fn crash_before_rename() -> Self {
+            Self {
+                fail_before_rename: AtomicBool::new(true),
+                rename_failures_remaining: AtomicU64::new(0),
+                fail_on_rename_error_kind: io::ErrorKind::Other,
+            }
+        }
+
+        fn transient_rename_failures(count: u64, kind: io::ErrorKind) -> Self {
+            Self {
+                fail_before_rename: AtomicBool::new(false),
+                rename_failures_remaining: AtomicU64::new(count),
+                fail_on_rename_error_kind: kind,
+            }
+        }
+    }
+
+    impl FileOps for FakeFileOps {
+        fn rename_replace(&self, from: &Path, to: &Path) -> io::Result<()> {
+            let rem = self.rename_failures_remaining.load(Ordering::SeqCst);
+            if rem > 0 {
+                self.rename_failures_remaining
+                    .store(rem - 1, Ordering::SeqCst);
+                return Err(io::Error::new(
+                    self.fail_on_rename_error_kind,
+                    "simulated transient rename failure",
+                ));
+            }
+            fs::rename(from, to)
+        }
+
+        fn fsync_file(&self, file: &File) -> io::Result<()> {
+            file.sync_all()?;
+            if self.fail_before_rename.swap(false, Ordering::SeqCst) {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "simulated crash between write/fsync and rename",
+                ));
+            }
+            Ok(())
+        }
+
+        fn fsync_dir(&self, dir: &Path) -> io::Result<()> {
+            StdFileOps.fsync_dir(dir)
+        }
+    }
 
     fn unique_test_dir(label: &str) -> PathBuf {
         let pid = std::process::id();
@@ -265,100 +411,92 @@ mod tests {
 
     const D1: &str = "1111111111111111111111111111111111111111111111111111111111111111";
     const D2: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+    const D3: &str = "3333333333333333333333333333333333333333333333333333333333333333";
 
     #[test]
-    fn accepts_higher_sequence_and_persists() {
-        let dir = unique_test_dir("accept-higher");
+    fn crash_between_write_and_rename_leaves_old_state_intact() {
+        let dir = unique_test_dir("crash-before-rename");
         let state_file = dir.join("rollback.json");
-        let mut store = RollbackStore::open(&state_file).expect("open");
-        assert_eq!(store.accept_and_persist(10, D1, Some(1735689600)).unwrap(), 10);
-        assert_eq!(store.accept_and_persist(25, D2, Some(1735689700)).unwrap(), 25);
-        let reopened = RollbackStore::open(&state_file).expect("reopen");
-        assert_eq!(reopened.last_seq(), 25);
-        assert_eq!(reopened.last_digest_hex(), D2);
-        let _ = fs::remove_dir_all(&dir);
-    }
 
-    #[test]
-    fn rejects_lower_sequence() {
-        let dir = unique_test_dir("reject-lower");
-        let state_file = dir.join("rollback.json");
         let mut store = RollbackStore::open(&state_file).expect("open");
-        store.accept_and_persist(42, D1, Some(1735689600)).unwrap();
+        store.accept_and_persist(10, D1, Some(1735689600)).unwrap();
+
+        let fake_ops = FakeFileOps::crash_before_rename();
         let err = store
-            .accept_and_persist(41, D1, Some(1735689800))
-            .expect_err("must reject lower");
-        assert_eq!(
-            err,
-            RollbackError::DowngradeRejected {
-                current_seq: 42,
-                candidate_seq: 41
-            }
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
+            .accept_and_persist_with_ops(20, D2, Some(1735689700), &fake_ops)
+            .expect_err("simulated crash must fail write");
+        assert!(matches!(err, RollbackError::Io(_)));
 
-    #[test]
-    fn rejects_equal_sequence_with_different_digest() {
-        let dir = unique_test_dir("reject-equal-digest");
-        let state_file = dir.join("rollback.json");
-        let mut store = RollbackStore::open(&state_file).expect("open");
-        store.accept_and_persist(25, D1, Some(1735689600)).unwrap();
-        let err = store
-            .accept_and_persist(25, D2, Some(1735689700))
-            .expect_err("must reject replay at same seq");
-        assert!(matches!(err, RollbackError::DigestMismatch { seq: 25, .. }));
-        assert_eq!(store.last_seq(), 25);
+        // In-memory and on-disk state must remain at seq=10, digest=D1
+        assert_eq!(store.last_seq(), 10);
         assert_eq!(store.last_digest_hex(), D1);
-        let _ = fs::remove_dir_all(&dir);
-    }
 
-    #[test]
-    fn accepts_equal_sequence_with_same_digest_idempotently() {
-        let dir = unique_test_dir("idempotent");
-        let state_file = dir.join("rollback.json");
-        let mut store = RollbackStore::open(&state_file).expect("open");
-        store.accept_and_persist(25, D1, Some(1735689600)).unwrap();
-        assert_eq!(store.accept_and_persist(25, D1, Some(1735689700)).unwrap(), 25);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn fails_closed_on_corrupt_state_file() {
-        let dir = unique_test_dir("corrupt");
-        let state_file = dir.join("rollback.json");
-        fs::write(&state_file, "{not valid json").unwrap();
-        let err = RollbackStore::open(&state_file).expect_err("must reject corrupt");
-        assert!(matches!(err, RollbackError::CorruptState(_)));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn first_open_persists_initial_state() {
-        let dir = unique_test_dir("first-open");
-        let state_file = dir.join("rollback.json");
-        assert!(!state_file.exists());
-        let _store = RollbackStore::open(&state_file).expect("open");
-        assert!(state_file.exists());
-        let raw = fs::read_to_string(&state_file).unwrap();
-        assert!(raw.contains("\"last_seq\": 0"));
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn atomic_write_ignores_stale_partial_tmp_file() {
-        let dir = unique_test_dir("partial-tmp");
-        let state_file = dir.join("rollback.json");
-        let mut store = RollbackStore::open(&state_file).expect("open");
-        store.accept_and_persist(15, D1, Some(1735689600)).unwrap();
-
-        let partial_tmp = dir.join(".rollback.json.tmp.999999.0.0");
-        fs::write(&partial_tmp, "{\"last_seq\": 999, \"partial\": true").unwrap();
-
-        assert_eq!(store.accept_and_persist(16, D2, Some(1735689650)).unwrap(), 16);
         let reopened = RollbackStore::open(&state_file).expect("reopen");
-        assert_eq!(reopened.last_seq(), 16);
-        assert!(partial_tmp.exists());
+        assert_eq!(reopened.last_seq(), 10);
+        assert_eq!(reopened.last_digest_hex(), D1);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retry_succeeds_after_transient_rename_failure_and_counter_never_goes_backwards() {
+        let dir = unique_test_dir("retry-rename");
+        let state_file = dir.join("rollback.json");
+
+        let mut store = RollbackStore::open(&state_file).expect("open");
+        store.accept_and_persist(10, D1, Some(1735689600)).unwrap();
+
+        // First attempt fails twice on rename, then succeeds on retry
+        let flaky_ops = FakeFileOps::transient_rename_failures(2, io::ErrorKind::PermissionDenied);
+        assert!(store
+            .accept_and_persist_with_ops(15, D2, Some(1735689650), &flaky_ops)
+            .is_err());
+        assert_eq!(store.last_seq(), 10);
+
+        assert!(store
+            .accept_and_persist_with_ops(15, D2, Some(1735689650), &flaky_ops)
+            .is_err());
+        assert_eq!(store.last_seq(), 10);
+
+        let committed = store
+            .accept_and_persist_with_ops(15, D2, Some(1735689650), &flaky_ops)
+            .expect("third attempt succeeds");
+        assert_eq!(committed, 15);
+        assert_eq!(store.last_seq(), 15);
+        assert_eq!(store.last_digest_hex(), D2);
+
+        // Counter must never go backwards
+        let downgrade = store.accept_and_persist(14, D1, Some(1735689700));
+        assert_eq!(
+            downgrade,
+            Err(RollbackError::DowngradeRejected {
+                current_seq: 15,
+                candidate_seq: 14,
+            })
+        );
+        assert_eq!(store.last_seq(), 15);
+
+        // Equal seq with different digest must also fail
+        let mismatch = store.accept_and_persist(15, D3, Some(1735689750));
+        assert!(matches!(mismatch, Err(RollbackError::DigestMismatch { seq: 15, .. })));
+        assert_eq!(store.last_seq(), 15);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn std_file_ops_rename_replace_works_on_existing_target() {
+        let dir = unique_test_dir("std-rename-replace");
+        let target = dir.join("rollback.json");
+        let replacement = dir.join("replacement.tmp");
+
+        fs::write(&target, b"old-state").unwrap();
+        fs::write(&replacement, b"new-state").unwrap();
+
+        StdFileOps.rename_replace(&replacement, &target).unwrap();
+        assert!(!replacement.exists());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new-state");
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,0 +1,19 @@
+name: Shell tests
+on:
+  push:
+    paths: ['scripts/**', 'tests/**', 'image/linux/firstboot/**', '.github/workflows/shell-tests.yml']
+  pull_request:
+    paths: ['scripts/**', 'tests/**', 'image/linux/firstboot/**']
+permissions:
+  contents: read
+jobs:
+  bats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install bats
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bats
+      - name: verify-release tests (mock minisign, no real crypto)
+        run: bats tests/verify-release.bats
+      - name: first-boot tests
+        run: sh image/linux/firstboot/test.sh

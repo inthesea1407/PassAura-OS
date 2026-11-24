@@ -5,6 +5,7 @@
 //! deny rule always wins over any grant.
 
 pub mod admin;
+pub mod audit;
 pub mod blocking;
 pub mod device;
 pub mod entitlements;
