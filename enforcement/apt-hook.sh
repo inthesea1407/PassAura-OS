@@ -12,8 +12,19 @@ rc=0
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 while read -r line; do
   deb=$(printf '%s\n' "$line" | grep -o '/[^ ]*\.deb' | head -1)
-  [ -n "$deb" ] && [ -f "$deb" ] || continue
-  name=$(dpkg-deb -f "$deb" Package)
+  # Lines without a .deb path (protocol header, config lines, removals) are not installs.
+  [ -n "$deb" ] || continue
+  # A .deb that is named but cannot be read must not be waved through: fail closed.
+  if [ ! -f "$deb" ]; then
+    echo "pos-gate: cannot read $deb, blocking" >&2
+    rc=1
+    continue
+  fi
+  name=$(dpkg-deb -f "$deb" Package) && [ -n "$name" ] || {
+    echo "pos-gate: cannot read package name of $deb, blocking" >&2
+    rc=1
+    continue
+  }
   dpkg-deb -c "$deb" | awk '{print $NF}' | sed 's#^\./#/#' > "$TMP/files"
   rm -rf "$TMP/x"; mkdir "$TMP/x"; dpkg-deb -x "$deb" "$TMP/x"
   desk=$(find "$TMP/x" -name '*.desktop' 2>/dev/null)

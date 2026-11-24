@@ -1,9 +1,9 @@
 name: Shell tests
 on:
   push:
-    paths: ['scripts/**', 'tests/**', 'image/linux/firstboot/**', '.github/workflows/shell-tests.yml']
+    paths: ['scripts/**', 'tests/**', 'enforcement/**', 'image/linux/firstboot/**', '.github/workflows/shell-tests.yml']
   pull_request:
-    paths: ['scripts/**', 'tests/**', 'image/linux/firstboot/**']
+    paths: ['scripts/**', 'tests/**', 'enforcement/**', 'image/linux/firstboot/**']
 permissions:
   contents: read
 jobs:
@@ -15,5 +15,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bats
       - name: verify-release tests (mock minisign, no real crypto)
         run: bats tests/verify-release.bats
+      - name: apt-hook tests (mock dpkg-deb and pos-gate)
+        run: bats tests/apt-hook.bats
       - name: first-boot tests
         run: sh image/linux/firstboot/test.sh
