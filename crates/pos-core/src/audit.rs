@@ -226,10 +226,12 @@ impl<C: Clock> AuditLog<C> {
     /// [`AuditLog::verify_anchored`]).
     pub fn from_json_lines(lines: &str, clock: C) -> Result<Self, ChainError> {
         let mut records = Vec::new();
-        for (index, line) in lines.lines().enumerate() {
+        for line in lines.lines() {
             if line.trim().is_empty() {
                 continue;
             }
+            // `index` is the record position (blank lines do not count).
+            let index = records.len();
             let r: AuditRecord = serde_json::from_str(line).map_err(|_| ChainError {
                 kind: ChainErrorKind::CorruptLine,
                 index,
@@ -256,7 +258,10 @@ impl<C: Clock> AuditLog<C> {
     /// Load all records from a JSON-lines file, verifying integrity.
     pub fn load_from_file(path: &Path, clock: C) -> std::io::Result<Self> {
         let f = File::open(path)?;
-        Self::from_json_lines_lines(BufReader::new(f).lines().map_while(Result::ok), clock)
+        // A read error must fail the load. Dropping it would silently
+        // shorten the chain, which still verifies.
+        let lines = BufReader::new(f).lines().collect::<Result<Vec<String>, _>>()?;
+        Self::from_json_lines_lines(lines.into_iter(), clock)
     }
 
     /// As `from_json_lines`, from an iterator of lines.
@@ -265,9 +270,9 @@ impl<C: Clock> AuditLog<C> {
         clock: C,
     ) -> std::io::Result<Self> {
         let joined = lines.collect::<Vec<_>>().join("\n");
-        Self::from_json_lines(&joined, clock).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "audit chain invalid")
-        })
+        // Keep the ChainError as the error source so callers can inspect it.
+        Self::from_json_lines(&joined, clock)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 
     /// Verify the loaded chain and, additionally, compare its length and
@@ -563,5 +568,57 @@ mod tests {
         assert_eq!(a, b);
         assert_ne!(a, c);
         assert_eq!(a.len(), HASH_LEN);
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+
+    #[test]
+    fn event_names_match_serde_names() {
+        // The hash input uses event_json_name; the JSONL uses serde. They must agree.
+        for e in [
+            AuditEvent::GateAllowed,
+            AuditEvent::GateDenied,
+            AuditEvent::GateAudited,
+            AuditEvent::KeyRotated,
+            AuditEvent::RollbackDetected,
+        ] {
+            let j = serde_json::to_string(&e).unwrap();
+            assert_eq!(j, format!("\"{}\"", event_json_name(e)));
+        }
+    }
+
+    #[test]
+    fn corrupt_line_index_ignores_blank_lines() {
+        let mut log = AuditLog::with_clock(FixedClock(5));
+        log.append(AuditEvent::GateAllowed);
+        let good = log.to_json_lines();
+        let text = format!("\n\n{good}\n\nnot json\n");
+        let err = AuditLog::from_json_lines(&text, FixedClock(5)).unwrap_err();
+        assert_eq!(err.kind, ChainErrorKind::CorruptLine);
+        assert_eq!(err.index, 1);
+    }
+
+    #[test]
+    fn chain_error_is_kept_as_io_error_source() {
+        let e = AuditLog::from_json_lines_lines(["not json".to_string()].into_iter(), FixedClock(1)).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        assert!(e.get_ref().and_then(|s| s.downcast_ref::<ChainError>()).is_some());
+    }
+
+    #[test]
+    fn load_from_file_fails_on_non_utf8_instead_of_truncating() {
+        let dir = std::env::temp_dir().join(format!("pos-audit-io-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.jsonl");
+        let mut log = AuditLog::with_clock(FixedClock(5));
+        log.append(AuditEvent::GateAllowed);
+        log.append(AuditEvent::GateDenied);
+        let mut bytes = log.to_json_lines().into_bytes();
+        bytes.extend_from_slice(&[0xff, 0xfe, b'\n']); // invalid UTF-8 line after valid records
+        std::fs::write(&f, bytes).unwrap();
+        assert!(AuditLog::load_from_file(&f, FixedClock(5)).is_err());
     }
 }
