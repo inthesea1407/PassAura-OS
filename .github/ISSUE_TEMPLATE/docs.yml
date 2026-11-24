@@ -1,0 +1,43 @@
+name: Documentation
+description: Fix or clarify docs without changing product claims toward audits.
+title: "[docs] "
+labels: ["docs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for README, `docs/**`, or contributor-facing text.
+        Do not add marketing language or audit claims.
+        The project remains experimental and unaudited.
+
+  - type: input
+    id: path
+    attributes:
+      label: Doc path
+      description: Example — docs/ARCHITECTURE.md or README.md
+      placeholder: docs/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is wrong or unclear
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested change
+      description: Outline or paste proposed wording (no secrets).
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: honesty
+    attributes:
+      label: Honesty check
+      options:
+        - label: This change does not claim an audit, certification, or production security guarantee.
+          required: true

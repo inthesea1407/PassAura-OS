@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a functional bug (not a security vulnerability).
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is for **non-security** bugs only.
+        For vulnerabilities, use [private vulnerability reporting](https://github.com/inthesea1407/PassAura-OS/security/advisories/new) and read `SECURITY.md`.
+        The project is experimental and has **not** been independently audited.
+
+  - type: checkboxes
+    id: existing
+    attributes:
+      label: Existing issues
+      options:
+        - label: I searched open issues and did not find a duplicate.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - pos-core
+        - pos-gate
+        - pos-cli
+        - Linux image / apt hook
+        - Windows wrapper
+        - Docs / CI
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong in one or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Include OS and commands.
+      placeholder: |
+        1. cargo test -p pos-core
+        2. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Commit or version
+      description: git rev-parse HEAD or tag, if known.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Paste relevant terminal output. Do not include secrets or tokens.
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/inthesea1407/PassAura-OS/security/advisories/new
+    about: Do not file public issues for security problems. Use GitHub private vulnerability reporting.
+  - name: Security policy
+    url: https://github.com/inthesea1407/PassAura-OS/blob/main/SECURITY.md
+    about: Read the disclosure process, scope, and 90-day target window.

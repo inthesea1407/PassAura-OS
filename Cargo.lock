@@ -739,6 +739,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "pos-core",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

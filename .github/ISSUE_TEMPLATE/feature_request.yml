@@ -1,0 +1,62 @@
+name: Feature request
+description: Propose a change that fits an experimental install-gate / policy engine.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PassAura OS is experimental and **unaudited**.
+        Features that require paid services, secrets in-repo, or audit claims will be rejected.
+        Prefer small, testable proposals.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this solve for contributors or users of the gate?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Concrete behavior. Name crates or paths if possible.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Primary area
+      options:
+        - pos-core
+        - pos-gate
+        - pos-cli
+        - Linux image
+        - Windows
+        - Docs / process
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints acknowledged
+      options:
+        - label: No secrets or credentials will be added to the repository.
+          required: true
+        - label: Only free tools are required to build and test the change.
+          required: true
+        - label: This does not claim an audit or production readiness.
+          required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Optional. What else did you consider?
+    validations:
+      required: false
