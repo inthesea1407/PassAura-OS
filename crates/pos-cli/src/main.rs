@@ -82,6 +82,9 @@ enum Cmd {
         /// Path to keyring.json
         #[arg(long)]
         keyring: PathBuf,
+        /// Rollback state file (v2 allowlists only); rejects older sequences.
+        #[arg(long)]
+        state: Option<PathBuf>,
     },
     /// Check whether a package is allowed, and optionally dry-run install.
     Install {
@@ -96,6 +99,9 @@ enum Cmd {
         /// Show what would happen without installing.
         #[arg(long)]
         dry_run: bool,
+        /// Rollback state file (v2 allowlists only); updated after a real install.
+        #[arg(long)]
+        state: Option<PathBuf>,
     },
     /// Sign an allowlist.json (signed_by and packages set; signature_hex is overwritten).
     Sign {
@@ -135,7 +141,50 @@ fn read_json(path: &PathBuf) -> Result<Vec<u8>, String> {
     std::fs::read(path).map_err(|e| format!("cannot read {}: {}", path.display(), e))
 }
 
-fn cmd_verify(allowlist: PathBuf, keyring: PathBuf) -> ExitCode {
+fn is_v2(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .and_then(|v| v.get("version").and_then(|x| x.as_u64()))
+        == Some(2)
+}
+
+/// Verify a v2 allowlist. The document carries its own keyring, so the signer
+/// must ALSO appear (same key_id and public key) in the trusted keyring file;
+/// otherwise anyone could sign a document with a keyring of their own.
+fn check_v2(
+    bytes: &[u8],
+    trusted: &Keyring,
+    state: Option<&PathBuf>,
+) -> Result<pos_gate::allowlist_v2::V2Allowlist, String> {
+    use pos_gate::allowlist_v2::{canonical_digest_hex, verify_v2};
+    let doc = pos_gate::allowlist_v2::parse_any(bytes).map_err(|e| e.to_string())?;
+    let signer = doc
+        .keyring
+        .keys
+        .iter()
+        .find(|k| k.key_id == doc.signed_by)
+        .ok_or("signer not in document keyring")?;
+    if !trusted
+        .keys
+        .iter()
+        .any(|t| t.key_id == signer.key_id && t.public_key_hex == signer.public_key_hex)
+    {
+        return Err("signer is not in the trusted keyring".into());
+    }
+    let store = match state {
+        Some(p) => Some(pos_gate::rollback::RollbackStore::open(p).map_err(|e| e.to_string())?),
+        None => None,
+    };
+    let digest = canonical_digest_hex(&doc).map_err(|e| e.to_string())?;
+    let stored = store.as_ref().filter(|s| s.last_seq() > 0).map(|s| (s.last_seq(), s.last_digest_hex().to_string()));
+    verify_v2(&doc, now_secs() as i64, stored.as_ref().map(|(a, b)| (*a, b.as_str()))).map_err(|e| e.to_string())?;
+    if let Some(s) = &store {
+        s.check_candidate(doc.sequence, &digest).map_err(|e| e.to_string())?;
+    }
+    Ok(doc)
+}
+
+fn cmd_verify(allowlist: PathBuf, keyring: PathBuf, state: Option<PathBuf>) -> ExitCode {
     let keyring_bytes = match read_json(&keyring) {
         Ok(b) => b,
         Err(e) => {
@@ -158,6 +207,18 @@ fn cmd_verify(allowlist: PathBuf, keyring: PathBuf) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if is_v2(&allowlist_bytes) {
+        return match check_v2(&allowlist_bytes, &kr, state.as_ref()) {
+            Ok(d) => {
+                println!("ok: v2 allowlist verified (sequence {})", d.sequence);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("verification failed: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
     let doc = match AllowlistDoc::from_json(&allowlist_bytes) {
         Ok(d) => d,
         Err(e) => {
@@ -178,7 +239,7 @@ fn cmd_verify(allowlist: PathBuf, keyring: PathBuf) -> ExitCode {
     }
 }
 
-fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: bool) -> ExitCode {
+fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: bool, state: Option<PathBuf>) -> ExitCode {
     let bytes = match read_json(&allowlist) {
         Ok(b) => b,
         Err(e) => {
@@ -186,13 +247,12 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
             return ExitCode::from(2);
         }
     };
-    let doc = match AllowlistDoc::from_json(&bytes) {
-        Ok(d) => d,
-        Err(e) => {
+    if !is_v2(&bytes) {
+        if let Err(e) = AllowlistDoc::from_json(&bytes) {
             eprintln!("error: invalid allowlist: {e}");
             return ExitCode::from(2);
         }
-    };
+    }
 
     let kr = match read_json(&keyring).and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string())) {
         Ok(k) => k,
@@ -201,10 +261,33 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
             return ExitCode::from(2);
         }
     };
-    if let Err(e) = verify_allowlist(&kr, &doc, now_secs()) {
-        eprintln!("verification failed: {e}");
-        return ExitCode::from(2);
-    }
+    let v2doc = if is_v2(&bytes) {
+        match check_v2(&bytes, &kr, state.as_ref()) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                eprintln!("verification failed: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        None
+    };
+    let doc = if v2doc.is_none() {
+        let d = match AllowlistDoc::from_json(&bytes) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("error: invalid allowlist: {e}");
+                return ExitCode::from(2);
+            }
+        };
+        if let Err(e) = verify_allowlist(&kr, &d, now_secs()) {
+            eprintln!("verification failed: {e}");
+            return ExitCode::from(2);
+        }
+        Some(d)
+    } else {
+        None
+    };
 
     if package.is_empty()
         || package.starts_with('-')
@@ -213,7 +296,12 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
         eprintln!("invalid package identifier: {package}");
         return ExitCode::from(4);
     }
-    if !is_allowed(&doc, &package) {
+    let allowed = match (&v2doc, &doc) {
+        (Some(d), _) => d.entries.iter().any(|e| e.name == package),
+        (None, Some(d)) => is_allowed(d, &package),
+        _ => false,
+    };
+    if !allowed {
         eprintln!("not allowed: {package} is not in the allowlist");
         return ExitCode::from(3);
     }
@@ -221,6 +309,15 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
     if dry_run {
         println!("dry-run: would install {package} (allowed)");
     } else {
+        if let (Some(d), Some(sp)) = (&v2doc, &state) {
+            let digest = pos_gate::allowlist_v2::canonical_digest_hex(d).unwrap_or_default();
+            let r = pos_gate::rollback::RollbackStore::open(sp)
+                .and_then(|mut st| st.accept_and_persist(d.sequence, &digest, Some(now_secs() as i64)));
+            if let Err(e) = r {
+                eprintln!("error: cannot record rollback state: {e}");
+                return ExitCode::from(2);
+            }
+        }
         // The real installer is out of scope for this task; print intent.
         // In a full build this would shell out to the platform package manager
         // after re-verifying the signature.
@@ -316,8 +413,8 @@ fn main() -> ExitCode {
     };
 
     match cli.cmd {
-        Cmd::Verify { allowlist, keyring } => cmd_verify(allowlist, keyring),
-        Cmd::Install { package, allowlist, keyring, dry_run } => cmd_install(package, allowlist, keyring, dry_run),
+        Cmd::Verify { allowlist, keyring, state } => cmd_verify(allowlist, keyring, state),
+        Cmd::Install { package, allowlist, keyring, dry_run, state } => cmd_install(package, allowlist, keyring, dry_run, state),
         Cmd::Sign { allowlist, private_key, out } => cmd_sign(allowlist, private_key, out),
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Audit { action } => cmd_audit(action),

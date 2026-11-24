@@ -192,3 +192,15 @@ Download
 - New `sign <allowlist.json> --private-key <private-key.json> --out <file>` signs an allowlist.
 - Signed message: `passaura-allowlist-v1\n<signed_by>\n<issued_at>\n<expires_at>\n` then sorted `name@version\n` lines. Implemented in `crates/pos-gate/src/allowlist.rs`.
 - `--help` exits 0. The `installer not wired` message is accurate: `install` only checks and prints, it does not install anything yet.
+
+## v2 allowlists and audit logs
+
+- `verify` and `install` accept a v2 allowlist (`"version": 2`, see `allowlist_v2.rs`). The
+  signer must be in the trusted `--keyring` file with the same key_id and public key, because a
+  v2 document carries its own keyring and would otherwise vouch for itself.
+- `--state FILE` (optional) turns on the rollback check: an older sequence, or the same sequence
+  with different content, is rejected (exit 2). `install` records the new sequence after a real
+  (non-dry-run) install. Limit: the installer itself is still not wired, so this records intent.
+- `audit verify FILE` checks the hash chain (exit 0 ok, 2 tampered or corrupt, 3 unreadable).
+  `audit tail FILE -n N` prints the last N records. Removal of the newest records is not detectable.
+- Tested in `crates/pos-cli/tests/cli.rs`; vectors in `docs/CONFORMANCE.md`.

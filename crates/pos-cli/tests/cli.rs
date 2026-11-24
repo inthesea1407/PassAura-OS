@@ -296,3 +296,53 @@ fn audit_verify_and_tamper() {
     bin().args(["audit", "verify"]).arg(&f).assert().code(2);
     bin().args(["audit", "verify"]).arg(dir.join("missing")).assert().code(3);
 }
+
+// --- v2 allowlists (rotation format) --------------------------------------
+
+fn v2_doc(dir: &TempDir, seed: u8, trusted_seed: u8, seq: u64) -> (std::path::PathBuf, std::path::PathBuf) {
+    use ed25519_dalek::{Signer, SigningKey};
+    use pos_gate::allowlist_v2::*;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let sk = SigningKey::from_bytes(&[seed; 32]);
+    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let id = derive_key_id(&pk);
+    let mut d = V2Allowlist {
+        format: "passaura-allowlist".into(),
+        version: 2,
+        sequence: seq,
+        issued_at: now - 100,
+        expires_at: now + 86400,
+        signed_by: id.clone(),
+        keyring: V2Keyring { keys: vec![V2Key { key_id: id, public_key_hex: pk, valid_from: 0, valid_until: now + 86400, retired: false }] },
+        entries: vec![V2Entry { name: "ripgrep".into(), version: None, sha256: "a".repeat(64) }],
+        signature_hex: String::new(),
+    };
+    d.signature_hex = hex::encode(sk.sign(&canonical_payload_bytes(&d).unwrap()).to_bytes());
+    let tsk = SigningKey::from_bytes(&[trusted_seed; 32]);
+    let tpk = hex::encode(tsk.verifying_key().to_bytes());
+    let kr = format!(r#"{{"keys":[{{"key_id":"{}","public_key_hex":"{}"}}]}}"#, derive_key_id(&tpk), tpk);
+    (write(dir, "v2.json", &serde_json::to_string(&d).unwrap()), write(dir, "kr2.json", &kr))
+}
+
+#[test]
+fn v2_verify_install_and_rollback() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = v2_doc(&dir, 5, 5, 3);
+    bin().args(["verify", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(0);
+    let state = dir.path().join("state.json");
+    let a = |c: &str| vec![c.to_string(), "ripgrep".into(), "--allowlist".into(), al.to_str().unwrap().into(), "--keyring".into(), kr.to_str().unwrap().into(), "--state".into(), state.to_str().unwrap().into()];
+    bin().args(a("install")).assert().code(0);
+    // older sequence is rejected after the state was recorded
+    let (al2, _) = v2_doc(&dir, 5, 5, 2);
+    bin().args(["verify", al2.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--state", state.to_str().unwrap()]).assert().code(2);
+    // package not in allowlist
+    bin().args(["install", "nmap", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(3);
+}
+
+#[test]
+fn v2_self_signed_document_is_rejected_when_signer_not_trusted() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = v2_doc(&dir, 5, 6, 1); // signed by key 5, trusted ring holds key 6
+    bin().args(["verify", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+    bin().args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+}
