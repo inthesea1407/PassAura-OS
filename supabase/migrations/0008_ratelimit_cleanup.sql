@@ -13,7 +13,6 @@ begin;
 
 -- pg_cron is available on all Supabase plans including free [citation:4].
 -- Create it in the extensions schema per Supabase convention.
-create extension if not exists pg_cron with schema extensions;
 
 -- Cleanup function: deletes up to p_limit expired rows per call.
 -- Bounded so it never takes a long lock or bloats WAL in one shot.
@@ -49,10 +48,12 @@ grant execute on function public.cleanup_rate_limits(int,int) to service_role;
 -- steady-state arrival rate for a free-tier project. Uses UTC [citation:4].
 -- cron.schedule is idempotent on jobname: re-running this migration replaces
 -- the schedule rather than duplicating it.
-select cron.schedule(
-  'passaura-rate-limit-cleanup',
-  '*/15 * * * *',
-  $$select public.cleanup_rate_limits(86400, 5000)$$
-);
+do $do$
+begin
+  create extension if not exists pg_cron with schema extensions;
+  perform cron.schedule('passaura-rate-limit-cleanup', '*/15 * * * *', 'select public.cleanup_rate_limits(86400, 5000)');
+exception when others then
+  raise notice 'pg_cron not available (%): schedule the cleanup manually', sqlerrm;
+end $do$;
 
 commit;
