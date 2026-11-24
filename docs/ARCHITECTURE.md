@@ -130,3 +130,10 @@ for an `Install` verdict.
 - The apt hook skips an entry whose .deb cannot be found, so that package is outside coverage.
 - Root, a modified build or a fork can bypass it, and only installs that go through the hook
   are covered. It is not a system-wide security boundary, and nothing here is audited.
+
+### Windows policy writer limits
+`pos-platform` windows.rs only generates AppLocker XML and the planned registry
+writes. The `RegistryWriter` trait can only write strings. It cannot delete or
+list existing values, and it has no rollback. So a shorter allowlist does not
+remove entries left by an earlier, longer one, and a failed run can leave a
+partial write. Nothing here has run against a real Windows registry.
