@@ -262,7 +262,7 @@ impl<T: HttpTransport> PosClient<T> {
         &self,
         request: &RedeemRequest,
     ) -> Result<RedeemResponse, ClientError> {
-        if request.code.is_empty() || !is_uuid(&request.device_id) {
+        if request.code.trim().is_empty() || !is_uuid(&request.device_id) {
             return Err(ClientError::InvalidRequest);
         }
 
@@ -512,7 +512,14 @@ impl HttpTransport for UreqTransport {
     ) -> Result<HttpResponse, ClientError> {
         validate_https_url(https_url)?;
 
-        let result = ureq::post(https_url)
+        // Finite timeouts so a stalled server cannot hang the app.
+        let agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .redirects(0)
+            .build();
+        let result = agent
+            .post(https_url)
             .set("Content-Type", "application/json")
             .send_string(body_json);
 
@@ -789,6 +796,35 @@ mod tests {
                 .as_deref(),
             Some("2030-01-01T00:00:00Z")
         );
+    }
+
+    #[test]
+    fn redeem_rejects_whitespace_code() {
+        let mut req = valid_redeem_request();
+        req.code = "   ".to_string();
+        let fake = FakeTransport::new(vec![]);
+        let c = fake_client(fake);
+        assert_eq!(c.redeem(&req), Err(ClientError::InvalidRequest));
+    }
+
+    #[test]
+    fn backoff_doubles_caps_and_saturates() {
+        let p = RetryPolicy {
+            max_attempts: 9,
+            base_delay: Duration::from_millis(250),
+            max_delay: Duration::from_secs(3),
+        };
+        assert_eq!(backoff_delay(&p, 0), Duration::from_millis(250));
+        assert_eq!(backoff_delay(&p, 1), Duration::from_millis(500));
+        assert_eq!(backoff_delay(&p, 3), Duration::from_secs(2));
+        assert_eq!(backoff_delay(&p, 4), Duration::from_secs(3));
+        assert_eq!(backoff_delay(&p, 500), Duration::from_secs(3));
+        let huge = RetryPolicy {
+            max_attempts: 9,
+            base_delay: Duration::from_secs(u64::MAX / 2),
+            max_delay: Duration::from_secs(1),
+        };
+        assert_eq!(backoff_delay(&huge, 5), Duration::from_secs(1));
     }
 
     #[test]

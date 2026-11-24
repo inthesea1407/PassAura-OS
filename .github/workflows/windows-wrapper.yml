@@ -3,7 +3,7 @@ on:
   push:
     paths: ['image/windows/Invoke-PosGate*.ps1', '.github/workflows/windows-wrapper.yml']
   pull_request:
-    paths: ['image/windows/Invoke-PosGate*.ps1']
+    paths: ['image/windows/Invoke-PosGate*.ps1', '.github/workflows/windows-wrapper.yml']
 permissions:
   contents: read
 jobs:
