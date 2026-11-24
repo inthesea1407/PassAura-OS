@@ -1,0 +1,25 @@
+[package]
+name = "pos-fuzz"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+pos-gate = { path = "../crates/pos-gate" }
+
+[[bin]]
+name = "fuzz_allowlist_json"
+path = "fuzz_targets/fuzz_allowlist_json.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_package_name"
+path = "fuzz_targets/fuzz_package_name.rs"
+doc = false

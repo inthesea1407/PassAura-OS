@@ -5,6 +5,7 @@
 //! and it only sees packages installed through the hooked package manager.
 
 pub mod allowlist;
+pub mod names;
 pub mod allowlist_signing;
 pub mod linux_backend;
 pub mod rollback;

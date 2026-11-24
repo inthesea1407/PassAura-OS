@@ -33,6 +33,12 @@ pub enum Mode {
     Audit,
 }
 
+impl Serialize for Mode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
 impl Mode {
     fn as_str(self) -> &'static str {
         match self {
@@ -64,7 +70,7 @@ impl<'de> Deserialize<'de> for Mode {
 /// `require_signature`) without the load failing outright. An explicitly
 /// empty `allowed_sources = []` is valid and, in allowlist mode, denies
 /// every source by absence.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Policy {
     pub mode: Mode,
