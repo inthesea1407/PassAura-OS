@@ -5,13 +5,13 @@ import com.passaura.os.policy.DevicePolicyManagerWrapper
 
 class FakeDevicePolicyManagerWrapper : DevicePolicyManagerWrapper {
     var isDeviceOwnerResult: Boolean = false
-    val setAutofillCalls: MutableList<Pair<ComponentName, String?>> = mutableListOf()
+    val allowlistCalls: MutableList<Pair<ComponentName, Set<String>>> = mutableListOf()
     val addUserRestrictionCalls: MutableList<Pair<ComponentName, String>> = mutableListOf()
 
     override fun isDeviceOwnerApp(packageName: String): Boolean = isDeviceOwnerResult
 
-    override fun setPermittedAutofillService(admin: ComponentName, packageName: String?) {
-        setAutofillCalls.add(admin to packageName)
+    override fun setCredentialManagerAllowlist(admin: ComponentName, packages: Set<String>) {
+        allowlistCalls.add(admin to packages)
     }
 
     override fun addUserRestriction(admin: ComponentName, restriction: String) {
