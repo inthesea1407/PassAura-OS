@@ -356,3 +356,43 @@ fn flatpak_dry_run_does_not_execute() {
     assert_eq!(report.command.program, "flatpak");
     assert!(backend.runner().calls.is_empty());
 }
+
+#[test]
+fn flatpak_runner_failure_surfaces_typed_error() {
+    let fixture = fixture();
+    let mut backend = FlatpakBackend::new(FakeRunner::failing(), "flathub").unwrap();
+    let result = backend.install("org.example.App", &fixture.doc, &fixture.keys, 200, InstallMode::Apply);
+    assert!(matches!(result, Err(PackageBackendError::RunnerFailure { code: Some(42), .. })));
+    assert_eq!(backend.runner().calls.len(), 1);
+    assert_eq!(backend.runner().calls[0].program, "flatpak");
+}
+
+#[test]
+fn runner_spawn_error_is_an_error_not_success() {
+    let fixture = fixture();
+    let mut runner = FakeRunner::successful();
+    runner.result = Err("no such program".into());
+    let mut backend = AptDpkgBackend::new(runner);
+    let result = backend.install("curl", &fixture.doc, &fixture.keys, 200, InstallMode::Apply);
+    assert!(result.is_err());
+    assert_eq!(backend.runner().calls.len(), 1);
+}
+
+#[test]
+fn verification_failure_wins_over_not_allowed() {
+    // Expired document AND a package that is not listed: verification is reported.
+    let fixture = fixture();
+    let mut backend = AptDpkgBackend::new(FakeRunner::successful());
+    let result = backend.install("definitely-not-listed", &fixture.doc, &fixture.keys, 10_000_000, InstallMode::Apply);
+    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    assert!(backend.runner().calls.is_empty());
+}
+
+#[test]
+fn dry_run_succeeds_even_if_runner_would_fail() {
+    let fixture = fixture();
+    let mut backend = AptDpkgBackend::new(FakeRunner::failing());
+    let report = backend.install("curl", &fixture.doc, &fixture.keys, 200, InstallMode::DryRun).unwrap();
+    assert!(!report.executed);
+    assert!(backend.runner().calls.is_empty());
+}

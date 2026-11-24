@@ -370,3 +370,48 @@ fn v2_real_install_requires_state() {
     bin().args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(4);
     bin().args(["install", "ripgrep", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(0);
 }
+
+// --- extra pinning tests (round 15) ---------------------------------------
+
+#[test]
+fn install_rejects_bad_package_identifiers_with_exit_4() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
+    for bad in ["", "-evil", "a/b", "a b", "a;b", "$(x)", "a\\b"] {
+        bin()
+            .args(["install", bad, "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()])
+            .assert()
+            .code(4);
+    }
+}
+
+#[test]
+fn v1_allowlist_checked_against_a_different_keyring_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let (_kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
+    let other = dir.path().join("other");
+    bin().args(["keygen", "--out", other.to_str().unwrap()]).assert().code(0);
+    bin()
+        .args(["verify", al.to_str().unwrap(), "--keyring", other.join("keyring.json").to_str().unwrap()])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn audit_tamper_really_changes_file_and_tail_prints_last_record() {
+    use pos_core::audit::{AuditEvent, AuditLog, FixedClock};
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("a.jsonl");
+    let mut log = AuditLog::with_clock(FixedClock(100));
+    log.append(AuditEvent::GateAllowed);
+    log.append(AuditEvent::GateDenied);
+    log.save_to_file(&f).unwrap();
+    bin().args(["audit", "tail", "-n", "1"]).arg(&f).assert().code(0)
+        .stdout(predicate::str::contains("GateDenied"))
+        .stdout(predicate::str::contains("GateAllowed").not());
+    let before = fs::read_to_string(&f).unwrap();
+    let after = before.replace("gate_denied", "gate_allowed");
+    assert_ne!(before, after, "tamper must change the file");
+    fs::write(&f, after).unwrap();
+    bin().args(["audit", "verify"]).arg(&f).assert().code(2);
+}
