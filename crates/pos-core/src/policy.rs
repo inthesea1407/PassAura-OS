@@ -83,7 +83,13 @@ impl Policy {
     /// Parse a policy from a TOML string. Fails on malformed TOML, unknown
     /// fields, unknown `mode`, or any missing field.
     pub fn from_toml_str(input: &str) -> Result<Self, PolicyError> {
-        toml::from_str(input).map_err(|e| PolicyError(format!("{e}")))
+        let p: Self = toml::from_str(input).map_err(|e| PolicyError(format!("{e}")))?;
+        // An empty source entry would match an empty request source, which no
+        // legitimate source has. Reject it instead of loading a wildcard.
+        if p.allowed_sources.iter().any(|s| s.trim().is_empty()) {
+            return Err(PolicyError("allowed_sources contains an empty entry".into()));
+        }
+        Ok(p)
     }
 }
 
@@ -437,5 +443,20 @@ require_signature = true
         assert_eq!(ReasonCode::SizeExceeded.as_str(), "size_exceeded");
         assert_eq!(ReasonCode::SourceNotAllowed.as_str(), "source_not_allowed");
         assert_eq!(ReasonCode::SignatureRequired.as_str(), "signature_required");
+    }
+}
+
+#[cfg(test)]
+mod empty_source_tests {
+    use super::*;
+
+    #[test]
+    fn empty_allowed_source_is_rejected() {
+        for entry in ["\"\"", "\"   \""] {
+            let t = format!(
+                "mode = \"allowlist\"\nallowed_sources = [{entry}]\nmax_package_size_mb = 100\nrequire_signature = false\n"
+            );
+            assert!(Policy::from_toml_str(&t).is_err(), "entry {entry}");
+        }
     }
 }
