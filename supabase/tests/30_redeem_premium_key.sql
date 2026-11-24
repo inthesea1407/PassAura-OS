@@ -1,5 +1,5 @@
 begin;
-select plan(9);
+select plan(7);
 
 -- Owner inserts an owner row so admin_* work.
 insert into auth.users(id, email) values ('11111111-1111-1111-1111-111111111111','o@x') on conflict do nothing;
@@ -41,10 +41,11 @@ select throws_ok(
   $$select public.redeem_premium_key((select code from t_key3), (select id from t_dev))$$,
   'P0001', 'KEY_INVALID', 'expired key refused');
 
--- Revoked device.
+-- Revoked device (fresh key, so the key itself is valid).
+create temporary table t_key4 as select public.admin_issue_premium_key('trial',14) as code;
 update public.devices set revoked=true where id=(select id from t_dev);
 select throws_ok(
-  $$select public.redeem_premium_key((select code from t_key), (select id from t_dev))$$,
+  $$select public.redeem_premium_key((select code from t_key4), (select id from t_dev))$$,
   'P0001', 'DEVICE_INVALID', 'revoked device refused');
 
 -- Non-owner, non-MFA cannot call admin_*.

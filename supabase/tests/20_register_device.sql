@@ -1,5 +1,5 @@
 begin;
-select plan(12);
+select plan(10);
 
 -- Closed mode: even during seed window, registration is refused (F2 fix).
 update public.admin_config set mode='closed', seed_limit=2 where id=1;
