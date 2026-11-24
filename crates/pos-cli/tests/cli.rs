@@ -336,7 +336,7 @@ fn v2_verify_install_and_rollback() {
     let (al2, _) = v2_doc(&dir, 5, 5, 2);
     bin().args(["verify", al2.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--state", state.to_str().unwrap()]).assert().code(2);
     // package not in allowlist
-    bin().args(["install", "nmap", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(3);
+    bin().args(["install", "nmap", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(3);
 }
 
 #[test]
@@ -345,4 +345,28 @@ fn v2_self_signed_document_is_rejected_when_signer_not_trusted() {
     let (al, kr) = v2_doc(&dir, 5, 6, 1); // signed by key 5, trusted ring holds key 6
     bin().args(["verify", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
     bin().args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+}
+
+#[test]
+fn keygen_refuses_to_overwrite_existing_keys() {
+    let dir = TempDir::new().unwrap();
+    let out = dir.path().join("k");
+    bin().args(["keygen", "--out", out.to_str().unwrap()]).assert().code(0);
+    let before = fs::read_to_string(out.join("private-key.json")).unwrap();
+    bin().args(["keygen", "--out", out.to_str().unwrap()]).assert().code(2);
+    assert_eq!(before, fs::read_to_string(out.join("private-key.json")).unwrap());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let m = fs::metadata(out.join("private-key.json")).unwrap().permissions().mode();
+        assert_eq!(m & 0o077, 0, "private key must not be group/world accessible");
+    }
+}
+
+#[test]
+fn v2_real_install_requires_state() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = v2_doc(&dir, 5, 5, 3);
+    bin().args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(4);
+    bin().args(["install", "ripgrep", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(0);
 }

@@ -137,6 +137,7 @@ fn flatpak_allowed_install_uses_exact_argv() {
             args: vec![
                 "install".into(),
                 "--noninteractive".into(),
+                "--".into(),
                 "flathub".into(),
                 "org.example.App".into(),
             ],

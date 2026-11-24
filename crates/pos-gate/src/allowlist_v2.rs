@@ -33,6 +33,8 @@ pub enum V2Error {
     DowngradeRejected { stored: u64, candidate: u64 },
     DigestMismatch { stored_hex: String, candidate_hex: String },
     NoSequence,
+    DuplicateKeyId(String),
+    InvalidKeyWindow(String),
 }
 
 impl fmt::Display for V2Error {
@@ -42,6 +44,8 @@ impl fmt::Display for V2Error {
             V2Error::UnsupportedVersion(v) => write!(f, "unsupported allowlist version {v}"),
             V2Error::BadFormat(m) => write!(f, "bad allowlist format: {m}"),
             V2Error::SignatureInvalid => write!(f, "signature invalid"),
+            V2Error::DuplicateKeyId(k) => write!(f, "duplicate key_id {k} in keyring"),
+            V2Error::InvalidKeyWindow(k) => write!(f, "key {k} has an empty or inverted validity window"),
             V2Error::SignedByUnknown(k) => write!(f, "signed_by {k} not in keyring"),
             V2Error::SignedByRetired(k) => write!(f, "signed_by {k} is retired"),
             V2Error::SignedByNotValidAt { key_id, issued_at } => write!(
@@ -148,11 +152,16 @@ pub struct V1Entry {
 /// converting v1 in memory. v1 signatures are **not** trusted or re-used;
 /// the converted document has an empty `signature_hex` and must be re-signed.
 pub fn parse_any(bytes: &[u8]) -> Result<V2Allowlist, V2Error> {
-    let probe: serde_json::Value =
+    // A struct probe (not a Value) so a duplicate `version` key is an error
+    // instead of silently keeping the last one.
+    #[derive(Deserialize)]
+    struct Probe {
+        version: Option<u64>,
+    }
+    let probe: Probe =
         serde_json::from_slice(bytes).map_err(|e| V2Error::Json(e.to_string()))?;
     let version = probe
-        .get("version")
-        .and_then(|v| v.as_u64())
+        .version
         .ok_or_else(|| V2Error::BadFormat("missing version".into()))?;
 
     match version {
@@ -281,20 +290,14 @@ pub fn verify_v2(
         return Err(V2Error::KeyringEmpty);
     }
 
-    // Downgrade / replay check.
-    let digest = canonical_digest_hex(doc)?;
-    if let Some((seq, stored_digest)) = stored {
-        if doc.sequence < seq {
-            return Err(V2Error::DowngradeRejected {
-                stored: seq,
-                candidate: doc.sequence,
-            });
+    // Keyring sanity: unique ids and non-empty validity windows.
+    let mut seen = std::collections::BTreeSet::new();
+    for k in &doc.keyring.keys {
+        if !seen.insert(k.key_id.as_str()) {
+            return Err(V2Error::DuplicateKeyId(k.key_id.clone()));
         }
-        if doc.sequence == seq && digest != stored_digest {
-            return Err(V2Error::DigestMismatch {
-                stored_hex: stored_digest.to_string(),
-                candidate_hex: digest,
-            });
+        if k.valid_from >= k.valid_until {
+            return Err(V2Error::InvalidKeyWindow(k.key_id.clone()));
         }
     }
 
@@ -343,6 +346,23 @@ pub fn verify_v2(
     let payload = canonical_payload_bytes(doc)?;
     verify_ed25519(&pk_bytes, &payload, &sig_bytes)?;
 
+    // Downgrade / replay check, run only after the signature verified.
+    let digest = canonical_digest_hex(doc)?;
+    if let Some((seq, stored_digest)) = stored {
+        if doc.sequence < seq {
+            return Err(V2Error::DowngradeRejected {
+                stored: seq,
+                candidate: doc.sequence,
+            });
+        }
+        if doc.sequence == seq && digest != stored_digest {
+            return Err(V2Error::DigestMismatch {
+                stored_hex: stored_digest.to_string(),
+                candidate_hex: digest,
+            });
+        }
+    }
+
     Ok(())
 }
 
@@ -352,12 +372,12 @@ pub fn canonical_payload_bytes(doc: &V2Allowlist) -> Result<Vec<u8>, V2Error> {
 }
 
 fn verify_ed25519(pk: &[u8], msg: &[u8], sig: &[u8]) -> Result<(), V2Error> {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    use ed25519_dalek::{Signature, VerifyingKey};
     let pk_arr: [u8; 32] = pk.try_into().map_err(|_| V2Error::SignatureInvalid)?;
     let sig_arr: [u8; 64] = sig.try_into().map_err(|_| V2Error::SignatureInvalid)?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|_| V2Error::SignatureInvalid)?;
     let signature = Signature::from_bytes(&sig_arr);
-    vk.verify(msg, &signature).map_err(|_| V2Error::SignatureInvalid)
+    vk.verify_strict(msg, &signature).map_err(|_| V2Error::SignatureInvalid)
 }
 
 // ---------------------------------------------------------------------------

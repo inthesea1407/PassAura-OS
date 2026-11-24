@@ -314,6 +314,7 @@ impl<R: CommandRunner> PackageBackend for FlatpakBackend<R> {
             args: vec![
                 "install".into(),
                 "--noninteractive".into(),
+                "--".into(),
                 self.remote.clone(),
                 package.into(),
             ],

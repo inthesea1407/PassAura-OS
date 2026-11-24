@@ -204,3 +204,5 @@ Download
 - `audit verify FILE` checks the hash chain (exit 0 ok, 2 tampered or corrupt, 3 unreadable).
   `audit tail FILE -n N` prints the last N records. Removal of the newest records is not detectable.
 - Tested in `crates/pos-cli/tests/cli.rs`; vectors in `docs/CONFORMANCE.md`.
+- `keygen` refuses to overwrite existing key files and creates the private key with mode 0600 on Unix.
+- A real (non-dry-run) install from a v2 allowlist needs `--state`; without it the command exits 4.

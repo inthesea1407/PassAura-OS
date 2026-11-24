@@ -240,6 +240,13 @@ fn cmd_verify(allowlist: PathBuf, keyring: PathBuf, state: Option<PathBuf>) -> E
 }
 
 fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: bool, state: Option<PathBuf>) -> ExitCode {
+    if package.is_empty()
+        || package.starts_with('-')
+        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':'))
+    {
+        eprintln!("invalid package identifier: {package}");
+        return ExitCode::from(4);
+    }
     let bytes = match read_json(&allowlist) {
         Ok(b) => b,
         Err(e) => {
@@ -289,11 +296,8 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
         None
     };
 
-    if package.is_empty()
-        || package.starts_with('-')
-        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':'))
-    {
-        eprintln!("invalid package identifier: {package}");
+    if v2doc.is_some() && !dry_run && state.is_none() {
+        eprintln!("error: installing from a v2 allowlist requires --state so the rollback sequence is recorded");
         return ExitCode::from(4);
     }
     let allowed = match (&v2doc, &doc) {
@@ -377,20 +381,32 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
     let keyring_path = out.join("keyring.json");
     let private_path = out.join("private-key.json");
 
-    if let Err(e) = std::fs::write(&keyring_path, serde_json::to_vec_pretty(&keyring).unwrap_or_default()) {
+    // Never overwrite existing keys: a rerun must not destroy a private key.
+    for p in [&keyring_path, &private_path] {
+        if p.exists() {
+            eprintln!("error: {} already exists; refusing to overwrite", p.display());
+            return ExitCode::from(2);
+        }
+    }
+    fn write_new(path: &std::path::Path, bytes: &[u8], secret: bool) -> std::io::Result<()> {
+        use std::io::Write;
+        let mut o = std::fs::OpenOptions::new();
+        o.write(true).create_new(true);
+        #[cfg(unix)]
+        if secret {
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600); // private from the first byte, no chmod window
+        }
+        let _ = secret;
+        o.open(path)?.write_all(bytes)
+    }
+    if let Err(e) = write_new(&keyring_path, &serde_json::to_vec_pretty(&keyring).unwrap_or_default(), false) {
         eprintln!("error: cannot write {}: {e}", keyring_path.display());
         return ExitCode::from(2);
     }
-    if let Err(e) = std::fs::write(&private_path, serde_json::to_vec_pretty(&private).unwrap_or_default()) {
+    if let Err(e) = write_new(&private_path, &serde_json::to_vec_pretty(&private).unwrap_or_default(), true) {
         eprintln!("error: cannot write {}: {e}", private_path.display());
         return ExitCode::from(2);
-    }
-
-    // Best-effort: restrict private key permissions on Unix.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&private_path, std::fs::Permissions::from_mode(0o600));
     }
 
     println!("wrote {}", keyring_path.display());
