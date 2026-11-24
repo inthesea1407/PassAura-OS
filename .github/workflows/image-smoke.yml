@@ -36,7 +36,7 @@ jobs:
       - name: Install free image build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends mmdebstrap debootstrap apparmor-utils
+          sudo apt-get install -y --no-install-recommends mmdebstrap debootstrap debian-archive-keyring apparmor-utils
 
       - name: Check SELinux policy tools if installed (non-blocking report)
         run: |
