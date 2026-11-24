@@ -58,10 +58,20 @@ pub fn validate_hardware_id_hash(value: &str) -> bool {
 /// POST `register`.
 ///
 /// `invite_code` may be empty during the seed registration window.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RegisterRequest {
     pub invite_code: String,
     pub hardware_id_hash: String,
+}
+
+// Debug output must never carry the invite code, even in logs.
+impl std::fmt::Debug for RegisterRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisterRequest")
+            .field("invite_code", &"<redacted>")
+            .field("hardware_id_hash", &self.hardware_id_hash)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,10 +80,20 @@ pub struct RegisterResponse {
 }
 
 /// POST `redeem-key`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RedeemRequest {
     pub code: String,
     pub device_id: String,
+}
+
+// Debug output must never carry the Premium key.
+impl std::fmt::Debug for RedeemRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RedeemRequest")
+            .field("code", &"<redacted>")
+            .field("device_id", &self.device_id)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -351,6 +371,18 @@ pub fn validate_https_url(input: &str) -> Result<(), ClientError> {
             || matches!(c, '.' | '-' | ':' | '[' | ']'))
     }) {
         return Err(ClientError::InvalidUrl);
+    }
+
+    // A port, if present, must be 1..=65535. (IPv6 literals are bracketed.)
+    let host_port = authority.rsplit_once(':').filter(|(h, _)| !h.ends_with(']') || h.contains(']'));
+    if let Some((h, port)) = host_port {
+        let is_v6_inner = h.starts_with('[') && !h.ends_with(']');
+        if !is_v6_inner {
+            match port.parse::<u32>() {
+                Ok(n) if (1..=65535).contains(&n) && port.chars().all(|c| c.is_ascii_digit()) => {}
+                _ => return Err(ClientError::InvalidUrl),
+            }
+        }
     }
 
     if authority == "localhost"
@@ -678,6 +710,23 @@ mod tests {
     #[test]
     fn hash_validator_rejects_non_hex() {
         assert!(!validate_hardware_id_hash(&"g".repeat(64)));
+    }
+
+    #[test]
+    fn url_port_must_be_valid() {
+        assert!(validate_https_url("https://example.com:443/api").is_ok());
+        assert!(validate_https_url("https://example.com:99999999/api").is_err());
+        assert!(validate_https_url("https://example.com:0/api").is_err());
+        assert!(validate_https_url("https://example.com:80a/api").is_err());
+    }
+
+    #[test]
+    fn debug_hides_secrets() {
+        let r = valid_redeem_request();
+        let d = format!("{r:?}");
+        assert!(!d.contains(&r.code));
+        let g = RegisterRequest { invite_code: "SECRET-INVITE".into(), hardware_id_hash: "h".into() };
+        assert!(!format!("{g:?}").contains("SECRET-INVITE"));
     }
 
     #[test]
