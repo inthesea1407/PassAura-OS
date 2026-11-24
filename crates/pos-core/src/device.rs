@@ -104,7 +104,13 @@ impl ChallengeStore {
     }
     /// `challenge` must come from a secure RNG in production.
     pub fn issue(&mut self, challenge: &str, now: u64) {
+        // Drop expired challenges so abandoned ones do not pile up forever.
+        self.open.retain(|_, exp| now < *exp);
         self.open.insert(challenge.into(), now + CHALLENGE_TTL);
+    }
+    /// Number of challenges currently held (expired ones are removed on `issue`).
+    pub fn open_count(&self) -> usize {
+        self.open.len()
     }
     pub fn consume(&mut self, challenge: &str, now: u64) -> bool {
         match self.open.remove(challenge) {
@@ -120,6 +126,18 @@ mod tests {
 
     fn att(d: &str, b: &str, hw: bool) -> Attestation {
         Attestation { device_hash: d.into(), hardware_backed: hw, source_bucket: b.into() }
+    }
+
+    #[test]
+    fn issue_drops_expired_challenges() {
+        let mut c = ChallengeStore::new();
+        c.issue("old1", 0);
+        c.issue("old2", 1);
+        assert_eq!(c.open_count(), 2);
+        c.issue("new", CHALLENGE_TTL + 10);
+        assert_eq!(c.open_count(), 1);
+        assert!(c.consume("new", CHALLENGE_TTL + 11));
+        assert!(!c.consume("old1", CHALLENGE_TTL + 11));
     }
 
     #[test]
