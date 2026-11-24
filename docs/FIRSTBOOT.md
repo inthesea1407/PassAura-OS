@@ -343,6 +343,3 @@ No repository files were modified. All four requested files are provided above; 
 ChatGPT can make mistakes. Check important info.
 Latest response
 Context window full
-Start a new chat with an automatic summary of this conversation, or upgrade to continue here with more context available in every chat.
-New chat
-Upgrade to Plus
