@@ -1,0 +1,34 @@
+# PassAura OS (POS) - AppArmor Profile for Package Gate Hook (MIT)
+# Starts in complain mode so package hooks and coreutils/shell interactions
+# can be observed safely before enforcing.
+
+#include <tunables/global>
+
+profile passaura-pkg-gate /usr/local/bin/passaura-pkg-gate.sh flags=(complain) {
+  #include <abstractions/base>
+  #include <abstractions/bash>
+
+  # Allow executing the gate script and bash interpreter
+  /usr/local/bin/passaura-pkg-gate.sh mr rix,
+  /bin/bash ix,
+  /usr/bin/bash ix,
+
+  # Allow text/package-name inspection utilities used by the hook
+  /usr/bin/awk ix,
+  /usr/bin/cut ix,
+
+  # Read configuration and standard streams/file descriptors
+  /etc/passaura/** r,
+  /dev/null rw,
+  /dev/tty rw,
+
+  # Deny writing to host filesystem, network sockets, or mounting/ptrace
+  deny /etc/** w,
+  deny /usr/** w,
+  deny /var/** w,
+  deny /root/** rwkl,
+  deny /home/** rwkl,
+  network,
+  capability sys_admin,
+  capability sys_ptrace,
+}

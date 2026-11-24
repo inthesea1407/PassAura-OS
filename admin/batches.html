@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- CSP: same shape as admin/index.html. No inline script. SRI-pinned supabase-js. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdn.jsdelivr.net 'sha256-REPLACE_WITH_SUPABASE_SRI_SCRIPT';
+  style-src 'self' 'sha256-REPLACE_WITH_STYLE_HASH';
+  connect-src https://*.supabase.co;
+  img-src 'self' data:;
+  font-src 'self';
+  object-src 'none';
+  base-uri 'none';
+  form-action 'none';
+  frame-ancestors 'none';
+">
+<title>PassAura Premium Batches</title>
+<style>body{font:15px system-ui;max-width:1100px;margin:1rem auto;padding:0 1rem}
+table{width:100%;border-collapse:collapse}
+td,th{border-bottom:1px solid #eee;padding:4px;text-align:left;font-size:13px;word-break:break-all}
+pre{background:#f5f5f5;padding:8px;white-space:pre-wrap;max-height:300px;overflow:auto}
+.hide{display:none}
+button,input,select{font:inherit;padding:4px 8px;margin:2px}
+#msg{min-height:1.2em}
+.keylist{background:#1a1a1a;color:#7ee787;padding:12px;border-radius:6px;font-family:monospace;font-size:13px}
+.keylist code{display:block;padding:2px 0;cursor:pointer}
+.keylist code:hover{background:#2d2d2d}
+</style>
+</head>
+<body>
+<h1 data-i18n="batchTitle">Premium Key Batches</h1>
+<div>
+  <button id="langBtn" type="button">العربية</button>
+  <a href="index.html" data-i18n="back">Back to panel</a>
+</div>
+<p id="msg" role="status" aria-live="polite"></p>
+
+<section id="login">
+  <h2 data-i18n="login">Owner login</h2>
+  <input id="em" type="email" placeholder="email" autocomplete="username">
+  <input id="pw" type="password" placeholder="password" autocomplete="current-password">
+  <button id="doLogin" data-i18n="signIn">Sign in</button>
+  <div id="mfa" class="hide">
+    <input id="otp" placeholder="6-digit authenticator code" inputmode="numeric" autocomplete="one-time-code">
+    <button id="doOtp" data-i18n="verify">Verify</button>
+  </div>
+</section>
+
+<div id="app" class="hide">
+  <section>
+    <h2 data-i18n="generate">Generate batch</h2>
+    <input id="label" placeholder="batch label" maxlength="80">
+    <input id="count" type="number" value="10" min="1" max="500" style="width:5em">
+    <input id="days" type="number" value="30" min="1" max="3650" style="width:5em">
+    <button id="genBtn" data-i18n="generateKeys">Generate</button>
+    <div id="keyOut" class="hide">
+      <p><strong data-i18n="copyWarning">Copy these now. They will not be shown again.</strong></p>
+      <div class="keylist" id="keyList"></div>
+      <button id="copyAll" data-i18n="copyAll">Copy all</button>
+      <button id="dismissKeys" data-i18n="dismiss">Dismiss</button>
+    </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="expiry">Expiring soon</h2>
+    <span data-i18n="daysAhead">Days ahead</span>
+    <input id="daysAhead" type="number" value="30" min="0" max="3650" style="width:5em">
+    <button id="refreshExpiry" data-i18n="refresh">Refresh</button>
+    <table id="expT">
+      <thead><tr>
+        <th data-i18n="colExpires">Expires</th>
+        <th data-i18n="colPlan">Plan</th>
+        <th data-i18n="colDevice">Device</th>
+        <th data-i18n="colRevoked">Revoked</th>
+        <th data-i18n="colBatch">Batch</th>
+      </tr></thead>
+      <tbody id="expBody"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2 data-i18n="batches">Batches</h2>
+    <table id="batchT">
+      <thead><tr>
+        <th data-i18n="colCreated">Created</th>
+        <th data-i18n="colLabel">Label</th>
+        <th data-i18n="colCount">Count</th>
+        <th data-i18n="colValidDays">Valid days</th>
+      </tr></thead>
+      <tbody id="batchBody"></tbody>
+    </table>
+  </section>
+</div>
+
+<script
+  src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.8/dist/umd/supabase.min.js"
+  integrity="sha384-REPLACE_WITH_REAL_SHA384_BASE64"
+  crossorigin="anonymous"></script>
+<script src="config.js"></script>
+<script src="i18n.js"></script>
+<script src="batches.js"></script>
+</body>
+</html>
