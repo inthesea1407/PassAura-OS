@@ -19,7 +19,7 @@ reset role;
 
 -- Anon CAN read only public flags and published announcements.
 insert into public.feature_flags(project,key,value,is_public) values ('passaura','price_monthly','3.99'::jsonb,true);
-insert into public.feature_flags(project,key,value,is_public) values ('passaura','secret','\"x\"'::jsonb,false);
+insert into public.feature_flags(project,key,value,is_public) values ('passaura','secret','"x"'::jsonb,false);
 insert into public.announcements(project,title,body,published) values ('passaura','pub','ok',true);
 insert into public.announcements(project,title,body,published) values ('passaura','draft','no',false);
 set local role anon;
@@ -30,9 +30,9 @@ reset role;
 -- Authenticated non-owner cannot call admin_*.
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-000000000000","aal":"aal2"}', true);
-select throws_ok($$select public.admin_issue_invites(1)$$, 'FORBIDDEN', null, 'non-owner cannot issue invites');
-select throws_ok($$select public.admin_issue_premium_key('trial',14)$$, 'FORBIDDEN', null, 'non-owner cannot issue keys');
-select throws_ok($$select public.admin_set_device_revoked(gen_random_uuid(),true)$$, 'FORBIDDEN', null, 'non-owner cannot revoke device');
+select throws_ok($$select public.admin_issue_invites(1)$$, 'P0001', 'FORBIDDEN', 'non-owner cannot issue invites');
+select throws_ok($$select public.admin_issue_premium_key('trial',14)$$, 'P0001', 'FORBIDDEN', 'non-owner cannot issue keys');
+select throws_ok($$select public.admin_set_device_revoked(gen_random_uuid(),true)$$, 'P0001', 'FORBIDDEN', 'non-owner cannot revoke device');
 reset role;
 
 select * from finish();
