@@ -20,4 +20,4 @@ PassAura: premium trial keys issue/revoke, feature flags and pricing (public fla
 4. Host later (GitHub Pages is free; Vercel deploy stays on hold).
 
 ## Known gaps
-- Not run against Postgres. register_device() now rejects revoked and duplicate hardware (still no rate limit). Premium key redemption by the PassAura site is not built. Static host + CDN supabase-js (pin a version and add SRI before deploy). Membership tables are POS-specific.
+- Not run against Postgres. register_device() rejects revoked and duplicate hardware; rate limiting is in 0003 + Edge Functions (draft). Premium key redemption is drafted (0003 + redeem-key function); key-to-device binding and site entitlement checks are not. Static host + CDN supabase-js (pin a version and add SRI before deploy). Membership tables are POS-specific.
