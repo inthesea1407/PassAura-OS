@@ -394,6 +394,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pos-platform"
+version = "0.1.0"
+
+[[package]]
 name = "pos-windows"
 version = "0.1.0"
 dependencies = [

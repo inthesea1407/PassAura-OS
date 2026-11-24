@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppLockerPolicy Version="1">
+  <!--
+    PassAura OS (POS) - Windows AppLocker Policy Baseline
+    Policy: Allow only Windows system files, Program Files, and an explicit allowlist.
+    PassAura is the sole approved password/credential manager; known competing
+    password managers are explicitly blocked as examples.
+  -->
+  <RuleCollection Type="Exe" EnforcementMode="Enabled">
+    <!-- Allow Windows system binaries -->
+    <FilePathRule Id="11111111-1111-4111-8111-111111111001"
+                  Name="Allow Windows System Directory"
+                  Description="Allows executables inside %WINDIR%."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%WINDIR%\*" />
+      </Conditions>
+    </FilePathRule>
+
+    <!-- Allow standard Program Files binaries -->
+    <FilePathRule Id="11111111-1111-4111-8111-111111111002"
+                  Name="Allow Program Files Directory"
+                  Description="Allows executables inside %PROGRAMFILES%."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\*" />
+      </Conditions>
+    </FilePathRule>
+
+    <!-- Allow standard Program Files (x86) binaries -->
+    <FilePathRule Id="11111111-1111-4111-8111-111111111003"
+                  Name="Allow Program Files (x86) Directory"
+                  Description="Allows executables inside %PROGRAMFILES(X86)%."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES(X86)%\*" />
+      </Conditions>
+    </FilePathRule>
+
+    <!-- Explicit allowlist entry: PassAura (sole approved password/credential manager) -->
+    <FilePathRule Id="11111111-1111-4111-8111-111111111010"
+                  Name="Allow PassAura Password Manager"
+                  Description="Explicit allowlist rule for PassAura executable under POS."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%PROGRAMFILES%\PassAura\POS\PassAura.exe" />
+      </Conditions>
+    </FilePathRule>
+
+    <!-- Deny competing password/credential managers (path and publisher examples) -->
+    <FilePathRule Id="22222222-2222-4222-8222-222222222001"
+                  Name="Block Bitwarden Desktop Executable"
+                  Description="Example deny rule blocking Bitwarden password manager."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Deny">
+      <Conditions>
+        <FilePathCondition Path="*\Bitwarden.exe" />
+      </Conditions>
+    </FilePathRule>
+
+    <FilePathRule Id="22222222-2222-4222-8222-222222222002"
+                  Name="Block KeePass Executable"
+                  Description="Example deny rule blocking KeePass password manager."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Deny">
+      <Conditions>
+        <FilePathCondition Path="*\KeePass.exe" />
+      </Conditions>
+    </FilePathRule>
+
+    <FilePublisherRule Id="22222222-2222-4222-8222-222222222003"
+                       Name="Block 1Password by Publisher Example"
+                       Description="Example publisher deny rule blocking 1Password."
+                       UserOrGroupSid="S-1-1-0"
+                       Action="Deny">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=AGILEBITS INC., L=TORONTO, S=ONTARIO, C=CA"
+                              ProductName="1PASSWORD*"
+                              BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+
+    <FilePublisherRule Id="22222222-2222-4222-8222-222222222004"
+                       Name="Block Dashlane by Publisher Example"
+                       Description="Example publisher deny rule blocking Dashlane."
+                       UserOrGroupSid="S-1-1-0"
+                       Action="Deny">
+      <Conditions>
+        <FilePublisherCondition PublisherName="O=DASHLANE SAS, L=PARIS, C=FR"
+                              ProductName="DASHLANE*"
+                              BinaryName="*">
+          <BinaryVersionRange LowSection="*" HighSection="*" />
+        </FilePublisherCondition>
+      </Conditions>
+    </FilePublisherRule>
+  </RuleCollection>
+
+  <RuleCollection Type="Script" EnforcementMode="Enabled">
+    <FilePathRule Id="33333333-3333-4333-8333-333333333001"
+                  Name="Allow Windows System Scripts"
+                  Description="Allows administrative scripts inside %WINDIR%."
+                  UserOrGroupSid="S-1-1-0"
+                  Action="Allow">
+      <Conditions>
+        <FilePathCondition Path="%WINDIR%\*" />
+      </Conditions>
+    </FilePathRule>
+  </RuleCollection>
+</AppLockerPolicy>
+

@@ -1,0 +1,60 @@
+name: Windows Hardening Profile CI
+
+on:
+  pull_request:
+    paths:
+      - 'image/windows/**'
+      - '.github/workflows/windows-profile.yml'
+      - 'docs/WINDOWS.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'image/windows/**'
+      - '.github/workflows/windows-profile.yml'
+      - 'docs/WINDOWS.md'
+
+permissions:
+  contents: read
+
+jobs:
+  validate-windows-profile:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate XML well-formedness and JSON manifest
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          [xml]$null = Get-Content -Path 'image/windows/applocker-policy.xml' -Raw
+          $null = Get-Content -Path 'image/windows/profile.json' -Raw | ConvertFrom-Json
+          $null = Import-PowerShellDataFile -Path 'image/windows/asr-rules.psd1'
+          $null = Import-PowerShellDataFile -Path 'image/windows/registry-baseline.psd1'
+
+      - name: Install and run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
+            Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force -Repository PSGallery
+          }
+          $results = Invoke-ScriptAnalyzer -Path 'image/windows' -Severity @('Error', 'Warning')
+          if ($results) {
+            $results | Format-Table -AutoSize
+            throw "PSScriptAnalyzer reported issues."
+          }
+
+      - name: Run verify-hardening.ps1 in dry-run mode
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          & 'image/windows/verify-hardening.ps1' -DryRun -ProfileDir 'image/windows'
+          if ($LASTEXITCODE -ne 0) {
+            throw "verify-hardening.ps1 failed in dry-run mode with exit code $LASTEXITCODE."
+          }
+
