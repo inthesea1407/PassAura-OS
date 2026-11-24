@@ -40,6 +40,13 @@ create or replace function register_device(p_invite_code text, p_hardware_id_has
 returns uuid language plpgsql security definer set search_path = public as $$
 declare v_cfg admin_config; v_inv uuid; v_dev uuid; v_count int;
 begin
+  if exists (select 1 from devices where hardware_id_hash = p_hardware_id_hash and revoked) then
+    raise exception 'DEVICE_REVOKED';
+  end if;
+  if exists (select 1 from devices where hardware_id_hash = p_hardware_id_hash) then
+    raise exception 'DEVICE_ALREADY_REGISTERED';
+  end if;
+  lock table devices in share row exclusive mode;  -- serialises the seed-limit count
   select * into v_cfg from admin_config where id = 1;
   select count(*) into v_count from devices;
   if v_count < v_cfg.seed_limit then
