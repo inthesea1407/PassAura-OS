@@ -35,3 +35,26 @@ revoke all on function redeem_premium_key(text,uuid) from public, anon, authenti
 grant execute on function redeem_premium_key(text,uuid) to service_role;
 -- Open: a redeemed key is not yet bound to a device (add premium_device column) and entitlement checks
 -- by the PassAura site are not built.
+
+-- Bind redeemed key to the device and expose an entitlement check (service_role only).
+alter table premium_keys add column if not exists redeemed_by_device uuid references devices(id);
+create or replace function redeem_premium_key(p_code text, p_device uuid)
+returns timestamptz language plpgsql security definer set search_path = public as $$
+declare k premium_keys;
+begin
+  select * into k from premium_keys where key_hash = encode(digest(p_code,'sha256'),'hex') for update;
+  if k.id is null or k.revoked or k.redeemed_at is not null or (k.expires_at is not null and k.expires_at < now()) then
+    raise exception 'KEY_INVALID';
+  end if;
+  if not exists (select 1 from devices where id = p_device and not revoked) then raise exception 'DEVICE_INVALID'; end if;
+  update premium_keys set redeemed_at = now(), redeemed_by_device = p_device where id = k.id;
+  return k.expires_at;
+end $$;
+create or replace function premium_active(p_device uuid) returns boolean language sql stable
+security definer set search_path = public as $$
+  select exists (select 1 from premium_keys k join devices d on d.id = k.redeemed_by_device
+   where k.redeemed_by_device = p_device and not k.revoked and not d.revoked
+     and (k.expires_at is null or k.expires_at > now()));
+$$;
+revoke all on function premium_active(uuid) from public, anon, authenticated;
+grant execute on function premium_active(uuid) to service_role;
