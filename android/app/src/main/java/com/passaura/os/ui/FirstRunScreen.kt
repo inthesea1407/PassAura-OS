@@ -6,7 +6,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.passaura.os.R
 import com.passaura.os.network.NetworkClient
 import com.passaura.os.network.RegisterRequest
 import com.passaura.os.util.AppPreferences
@@ -27,16 +31,25 @@ fun FirstRunScreen(prefs: AppPreferences) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Register Device", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            text = stringResource(R.string.register_device), 
+            style = MaterialTheme.typography.headlineMedium
+        )
         Spacer(modifier = Modifier.height(8.dp))
-        Text("Invite Code (leave blank if you are one of the first 1000 seed members)", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = stringResource(R.string.seed_member_info), 
+            style = MaterialTheme.typography.bodyMedium
+        )
         Spacer(modifier = Modifier.height(16.dp))
         
         OutlinedTextField(
             value = inviteCode,
             onValueChange = { inviteCode = it },
-            label = { Text("Invite Code") },
-            modifier = Modifier.fillMaxWidth()
+            label = { Text(stringResource(R.string.invite_code_label)) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = stringResource(R.string.invite_code_label) },
+            enabled = !isLoading
         )
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -53,24 +66,35 @@ fun FirstRunScreen(prefs: AppPreferences) {
                             prefs.deviceId = response.body()?.deviceId
                         } else {
                             val errorBody = response.errorBody()?.string()
-                            errorMessage = "Registration failed: ${response.code()} - $errorBody"
+                            val resId = ErrorMessageMapper.getErrorMessageResId(errorBody)
+                            errorMessage = context.getString(resId)
                         }
                     } catch (e: Exception) {
-                        errorMessage = "Error: ${e.message}"
+                        errorMessage = context.getString(R.string.error_unknown)
                     } finally {
                         isLoading = false
                     }
                 }
             },
-            enabled = !isLoading
+            enabled = !isLoading,
+            modifier = Modifier.semantics { contentDescription = stringResource(R.string.register_button) }
         ) {
-            if (isLoading) CircularProgressIndicator(modifier = Modifier.size(24.dp))
-            else Text("Register")
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text(stringResource(R.string.register_button))
+            }
         }
         
         if (errorMessage != null) {
             Spacer(modifier = Modifier.height(16.dp))
-            Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+            Text(
+                text = errorMessage!!, 
+                color = MaterialTheme.colorScheme.error
+            )
         }
     }
 }

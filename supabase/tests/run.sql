@@ -4,3 +4,4 @@
 \i supabase/tests/20_register_device.sql
 \i supabase/tests/30_redeem_premium_key.sql
 \i supabase/tests/40_rate_limit.sql
+\i supabase/tests/60_audit.sql

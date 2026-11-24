@@ -1,0 +1,81 @@
+name: Linux Live/Installable ISO CI
+
+on:
+  pull_request:
+    paths:
+      - 'image/linux/**'
+      - '.github/workflows/linux-image.yml'
+      - 'docs/LINUX_IMAGE.md'
+  push:
+    branches:
+      - main
+    paths:
+      - 'image/linux/**'
+      - '.github/workflows/linux-image.yml'
+      - 'docs/LINUX_IMAGE.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ISO build dependencies (free tools only)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            mmdebstrap \
+            squashfs-tools \
+            xorriso \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            mtools \
+            dosfstools
+
+      - name: Make scripts executable
+        run: |
+          chmod +x image/linux/build-iso.sh image/linux/passaura-pkg-gate.sh image/linux/smoke-qemu.sh
+
+      - name: Build PassAura OS Linux ISO
+        run: |
+          ./image/linux/build-iso.sh
+
+      - name: Upload built ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: passaura-os-linux-iso
+          path: build/linux-iso/*.iso
+          if-no-files-found: error
+
+  smoke-test-qemu:
+    needs: build-linux-iso
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install QEMU and ISO inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            xorriso
+
+      - name: Download built ISO artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: passaura-os-linux-iso
+          path: build/linux-iso
+
+      - name: Make scripts executable
+        run: |
+          chmod +x image/linux/passaura-pkg-gate.sh image/linux/smoke-qemu.sh
+
+      - name: Run headless QEMU boot smoke test
+        run: |
+          ISO_FILE="$(find build/linux-iso -maxdepth 1 -name '*.iso' | head -n 1)"
+          ./image/linux/smoke-qemu.sh "$ISO_FILE"

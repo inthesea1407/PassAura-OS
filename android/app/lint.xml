@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- Enforce strict RTL compliance -->
+    <issue id="RtlHardcoded" severity="error" />
+    <issue id="RtlSymmetry" severity="error" />
+    
+    <!-- Ensure all strings are translated (we support en and ar) -->
+    <issue id="MissingTranslation" severity="error" />
+    
+    <!-- Catch unused resources to keep the app lean -->
+    <issue id="UnusedResources" severity="error" />
+</lint>
