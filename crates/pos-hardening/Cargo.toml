@@ -1,0 +1,6 @@
+[package]
+name = "pos-hardening"
+version = "0.1.0"
+edition = "2021"
+description = "Audits a Linux kernel .config against the PassAura OS hardening profile"
+license = "MIT"

@@ -1,0 +1,21 @@
+name: debian-image-smoke
+on: workflow_dispatch
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p pos-gate
+      - name: Build minimal Debian rootfs
+        run: |
+          sudo apt-get update && sudo apt-get install -y debootstrap
+          sudo debootstrap --variant=minbase stable /tmp/rootfs http://deb.debian.org/debian
+      - name: Gate test on real .debs
+        run: |
+          export PATH=$PWD/target/release:$PATH
+          cd /tmp && mkdir -p t/p/DEBIAN t/p/usr/lib/mozilla/native-messaging-hosts
+          printf 'Package: sneaky\nVersion: 1\nArchitecture: all\nMaintainer: t <t@t>\nDescription: t\n' > t/p/DEBIAN/control
+          echo '{}' > t/p/usr/lib/mozilla/native-messaging-hosts/x.json
+          dpkg-deb -b t/p t/sneaky.deb
+          if echo /tmp/t/sneaky.deb | sh $GITHUB_WORKSPACE/enforcement/apt-hook.sh; then echo "gate failed to block"; exit 1; fi

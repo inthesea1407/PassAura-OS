@@ -1,0 +1,8 @@
+{
+  "policies": {
+    "PasswordManagerEnabled": false,
+    "OfferToSaveLogins": false,
+    "DisableMasterPasswordCreation": true,
+    "ExtensionSettings": { "*": { "installation_mode": "blocked" } }
+  }
+}

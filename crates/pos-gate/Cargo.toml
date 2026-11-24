@@ -1,0 +1,9 @@
+[package]
+name = "pos-gate"
+version = "0.1.0"
+edition = "2021"
+description = "Package gate: observes what a package really contains and blocks non-PassAura password managers"
+license = "MIT"
+
+[dependencies]
+pos-core = { path = "../pos-core" }

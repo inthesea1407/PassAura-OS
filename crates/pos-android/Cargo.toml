@@ -1,0 +1,9 @@
+[package]
+name = "pos-android"
+version = "0.1.0"
+edition = "2021"
+description = "PassAura OS android platform adapter (maps platform permissions onto pos-core)"
+license = "MIT"
+
+[dependencies]
+pos-core = { path = "../pos-core" }

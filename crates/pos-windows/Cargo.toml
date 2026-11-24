@@ -1,0 +1,9 @@
+[package]
+name = "pos-windows"
+version = "0.1.0"
+edition = "2021"
+description = "PassAura OS windows platform adapter (maps platform permissions onto pos-core)"
+license = "MIT"
+
+[dependencies]
+pos-core = { path = "../pos-core" }

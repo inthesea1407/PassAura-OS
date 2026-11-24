@@ -1,0 +1,6 @@
+[package]
+name = "pos-core"
+version = "0.1.0"
+edition = "2021"
+description = "PassAura OS security core: deny-by-default permission and policy engine"
+license = "MIT"

@@ -1,0 +1,8 @@
+{
+  "PasswordManagerEnabled": false,
+  "PasswordSharingEnabled": false,
+  "AutofillCreditCardEnabled": false,
+  "ExtensionInstallBlocklist": ["*"],
+  "ExtensionInstallAllowlist": [],
+  "ExtensionInstallForcelist": []
+}

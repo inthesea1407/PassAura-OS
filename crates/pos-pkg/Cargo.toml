@@ -1,0 +1,11 @@
+[package]
+name = "pos-pkg"
+version = "0.1.0"
+edition = "2021"
+description = "Signed package format and verifier for the PassAura store (Ed25519 + SHA-256)"
+license = "MIT"
+
+[dependencies]
+pos-core = { path = "../pos-core" }
+ed25519-dalek = "2"
+sha2 = "0.10"

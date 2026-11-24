@@ -1,0 +1,9 @@
+[package]
+name = "pos-linux"
+version = "0.1.0"
+edition = "2021"
+description = "PassAura OS Linux user-space adapter (maps Linux capabilities onto pos-core)"
+license = "MIT"
+
+[dependencies]
+pos-core = { path = "../pos-core" }

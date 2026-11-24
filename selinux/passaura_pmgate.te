@@ -1,0 +1,23 @@
+# DRAFT, NOT COMPILED OR LOADED: no checkpolicy / root / SELinux kernel in the
+# dev environment. Must be compiled (checkmodule/semodule_package) and tested
+# on a real SELinux-enabled Linux before any claim of enforcement.
+# Idea: only the PassAura domain may own the secret-service/autofill roles;
+# any other app domain is denied access to browser native-messaging hosts
+# and to the PassAura vault store.
+policy_module(passaura_pmgate, 0.1.0)
+
+type passaura_pm_t;           # PassAura Premium process domain
+type passaura_pm_exec_t;      # its binary
+type passaura_vault_t;        # vault storage files
+type pos_nmhost_t;            # native-messaging-host manifest files
+files_type(passaura_vault_t)
+files_type(pos_nmhost_t)
+
+# Only PassAura reads/writes the vault.
+allow passaura_pm_t passaura_vault_t:file { create read write open getattr unlink };
+neverallow { domain -passaura_pm_t } passaura_vault_t:file { read write append };
+
+# Native-messaging manifests are label-protected: only the package gate
+# (admin) may write them, so an app cannot register itself as a browser
+# autofill host.
+neverallow { domain -unconfined_t -rpm_t -dpkg_t } pos_nmhost_t:file { create write append rename unlink };
