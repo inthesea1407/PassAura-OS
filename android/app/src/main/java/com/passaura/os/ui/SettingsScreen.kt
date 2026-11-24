@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(prefs: AppPreferences) {
     val context = LocalContext.current
+    val redeemDesc = stringResource(R.string.redeem_button)
     val scope = rememberCoroutineScope()
     var redeemCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -86,7 +87,7 @@ fun SettingsScreen(prefs: AppPreferences) {
                 }
             },
             enabled = !isLoading && redeemCode.isNotBlank() && prefs.deviceId != null,
-            modifier = Modifier.semantics { contentDescription = stringResource(R.string.redeem_button) }
+            modifier = Modifier.semantics { contentDescription = redeemDesc }
         ) {
             if (isLoading) {
                 CircularProgressIndicator(

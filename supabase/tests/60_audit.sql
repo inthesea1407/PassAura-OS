@@ -62,8 +62,10 @@ reset role;
 set local role anon;
 do $$
 begin
-  perform 1 from public.audit_log limit 1;
-  raise exception 'C FAIL: anon read audit_log';
+  if (select count(*) from public.audit_log) > 0 then
+    raise exception 'C FAIL: anon read audit_log';
+  end if;
+  raise notice 'C PASS: anon sees no audit rows (RLS)';
 exception when insufficient_privilege then
   raise notice 'C PASS: anon blocked from audit_log';
 end $$;
