@@ -12,7 +12,7 @@ jobs:
       - name: Install Postgres + pgTAP
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql postgresql-contrib postgresql-server-dev-all libtap-parser-sourcehandler-pgtap-perl
+          sudo apt-get install -y postgresql postgresql-contrib
           V=$(ls /usr/lib/postgresql | sort -n | tail -1)
           sudo apt-get install -y postgresql-$V-pgtap
           sudo systemctl start postgresql || sudo pg_ctlcluster $V main start
