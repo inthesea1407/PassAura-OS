@@ -43,7 +43,7 @@ create or replace function public.generate_premium_keys(
 returns text[]
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 declare
   v_batch_id uuid;
@@ -112,7 +112,7 @@ returns table (
 language plpgsql
 stable
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 begin
   if not public.is_owner() then
@@ -166,7 +166,7 @@ returns table (
 language plpgsql
 stable
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 begin
   if not public.is_owner() then

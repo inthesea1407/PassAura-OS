@@ -45,7 +45,7 @@ create or replace function public.log_admin_action(
 returns bigint
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 declare
   v_id bigint;
@@ -91,7 +91,7 @@ returns table (
 language plpgsql
 stable
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 begin
   if not public.is_owner() then
@@ -121,7 +121,7 @@ create or replace function public.cleanup_audit_log(
 returns int
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog, public, extensions
 as $$
 declare
   v_deleted int;

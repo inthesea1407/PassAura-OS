@@ -6,7 +6,7 @@ import com.passaura.os.R
 object ErrorMessageMapper {
     @StringRes
     fun getErrorMessageResId(errorBody: String?): Int {
-        if (errorBody == null) return R.string.error_unknown
+        if (errorBody.isNullOrBlank()) return R.string.error_unknown
         return when {
             errorBody.contains("REGISTRATION_CLOSED") -> R.string.error_registration_closed
             errorBody.contains("INVITE_INVALID_OR_USED") -> R.string.error_invite_invalid_or_used
@@ -15,6 +15,7 @@ object ErrorMessageMapper {
             errorBody.contains("RATE_LIMITED") -> R.string.error_rate_limited
             errorBody.contains("KEY_INVALID") -> R.string.error_key_invalid
             errorBody.contains("DEVICE_INVALID") -> R.string.error_device_invalid
+            errorBody.contains("BAD_INPUT") -> R.string.error_bad_input
             else -> R.string.error_unknown
         }
     }

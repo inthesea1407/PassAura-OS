@@ -19,14 +19,21 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(prefs: AppPreferences) {
-    val d_redeem_code_label = stringResource(R.string.redeem_code_label)
-    val d_redeem_button = stringResource(R.string.redeem_button)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var redeemCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var isError by remember { mutableStateOf(false) }
+    var showProvisioningStatus by remember { mutableStateOf(false) }
+
+    if (showProvisioningStatus) {
+        ProvisioningStatusScreen(
+            prefs = prefs,
+            onBack = { showProvisioningStatus = false }
+        )
+        return
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -34,11 +41,11 @@ fun SettingsScreen(prefs: AppPreferences) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = stringResource(R.string.settings_title), 
+            text = stringResource(R.string.settings_title),
             style = MaterialTheme.typography.headlineMedium
         )
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             text = stringResource(R.string.device_id_label, prefs.deviceId ?: stringResource(R.string.unknown)),
             modifier = Modifier.padding(horizontal = 16.dp)
@@ -48,21 +55,21 @@ fun SettingsScreen(prefs: AppPreferences) {
             text = stringResource(R.string.premium_until_label, prefs.premiumUntil ?: stringResource(R.string.not_active)),
             modifier = Modifier.padding(horizontal = 16.dp)
         )
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         OutlinedTextField(
             value = redeemCode,
             onValueChange = { redeemCode = it },
             label = { Text(stringResource(R.string.redeem_code_label)) },
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { contentDescription = d_redeem_code_label },
+                .semantics { contentDescription = stringResource(R.string.redeem_code_label) },
             enabled = !isLoading
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         Button(
             onClick = {
                 isLoading = true
@@ -88,7 +95,7 @@ fun SettingsScreen(prefs: AppPreferences) {
                 }
             },
             enabled = !isLoading && redeemCode.isNotBlank() && prefs.deviceId != null,
-            modifier = Modifier.semantics { contentDescription = d_redeem_button }
+            modifier = Modifier.semantics { contentDescription = stringResource(R.string.redeem_button) }
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
@@ -99,13 +106,22 @@ fun SettingsScreen(prefs: AppPreferences) {
                 Text(stringResource(R.string.redeem_button))
             }
         }
-        
+
         if (message != null) {
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = message!!, 
+                text = message!!,
                 color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
             )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedButton(
+            onClick = { showProvisioningStatus = true },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(stringResource(R.string.view_provisioning_status))
         }
     }
 }

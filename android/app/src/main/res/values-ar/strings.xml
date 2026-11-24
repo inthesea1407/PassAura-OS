@@ -1,17 +1,40 @@
 <resources>
     <string name="app_name">باس أوراً أو إس</string>
-    
+
     <string name="register_device">تسجيل الجهاز</string>
     <string name="seed_member_info">رمز الدعوة (اتركه فارغاً إذا كنت من أوائل 1000 عضو مؤسس)</string>
     <string name="invite_code_label">رمز الدعوة</string>
     <string name="register_button">تسجيل</string>
-    
+
     <string name="settings_title">إعدادات باس أوراً أو إس</string>
     <string name="device_id_label">معرف الجهاز: %s</string>
     <string name="premium_until_label">الاشتراك الممتاز حتى: %s</string>
     <string name="redeem_code_label">استرداد رمز الاشتراك الممتاز</string>
     <string name="redeem_button">استرداد</string>
-    
+    <string name="view_provisioning_status">عرض حالة التهيئة</string>
+    <string name="back_button">رجوع</string>
+
+    <string name="provisioning_status_title">حالة التهيئة</string>
+    <string name="device_owner_label">مالك الجهاز</string>
+    <string name="device_owner_yes">نعم</string>
+    <string name="device_owner_no">لا</string>
+    <string name="registration_status_label">مسجّل</string>
+    <string name="registered_yes">نعم</string>
+    <string name="registered_no">لا</string>
+    <string name="premium_status_label">الاشتراك الممتاز</string>
+    <string name="premium_active">نشط</string>
+    <string name="premium_active_until">نشط حتى %s</string>
+    <string name="premium_inactive">غير نشط</string>
+    <string name="last_check_label">آخر فحص</string>
+    <string name="never">أبداً</string>
+    <string name="refresh_button">تحديث</string>
+
+    <string name="talkback_device_owner_status">حالة مالك الجهاز: %s</string>
+    <string name="talkback_registration_status">حالة التسجيل: %s</string>
+    <string name="talkback_premium_status">حالة الاشتراك الممتاز: %s</string>
+    <string name="talkback_last_check">وقت آخر فحص: %s</string>
+    <string name="talkback_refresh_button">تحديث حالة التهيئة</string>
+
     <string name="error_registration_closed">التسجيل مغلق حالياً.</string>
     <string name="error_invite_invalid_or_used">رمز الدعوة غير صالح أو تم استخدامه بالفعل.</string>
     <string name="error_device_revoked">تم إلغاء صلاحية هذا الجهاز.</string>
@@ -19,8 +42,9 @@
     <string name="error_rate_limited">محاولات كثيرة جداً. يرجى المحاولة مرة أخرى لاحقاً.</string>
     <string name="error_key_invalid">مفتاح الاشتراك الممتاز غير صالح.</string>
     <string name="error_device_invalid">معرف الجهاز غير صالح.</string>
+    <string name="error_bad_input">الطلب غير صحيح. يرجى التحقق من المدخلات.</string>
     <string name="error_unknown">حدث خطأ غير معروف.</string>
-    
+
     <string name="premium_activated">تم تفعيل الاشتراك الممتاز!</string>
     <string name="not_active">غير نشط</string>
     <string name="unknown">غير معروف</string>
