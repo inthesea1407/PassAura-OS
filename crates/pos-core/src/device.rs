@@ -106,7 +106,7 @@ impl ChallengeStore {
     pub fn issue(&mut self, challenge: &str, now: u64) {
         // Drop expired challenges so abandoned ones do not pile up forever.
         self.open.retain(|_, exp| now < *exp);
-        self.open.insert(challenge.into(), now + CHALLENGE_TTL);
+        self.open.insert(challenge.into(), now.saturating_add(CHALLENGE_TTL));
     }
     /// Number of challenges currently held (expired ones are removed on `issue`).
     pub fn open_count(&self) -> usize {

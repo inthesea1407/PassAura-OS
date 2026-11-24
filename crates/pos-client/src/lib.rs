@@ -491,8 +491,17 @@ impl DeviceCache {
         let bytes = serde_json::to_vec(self)
             .map_err(|error| ClientError::Cache(error.to_string()))?;
 
-        fs::write(path, bytes)
-            .map_err(|error| ClientError::Cache(error.to_string()))
+        // Write to a sibling temp file, then rename, so an interrupted write
+        // never leaves a half-written cache.
+        let path = path.as_ref();
+        let mut tmp = path.as_os_str().to_owned();
+        tmp.push(".tmp");
+        let tmp = std::path::PathBuf::from(tmp);
+        let result = fs::write(&tmp, bytes).and_then(|_| fs::rename(&tmp, path));
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        result.map_err(|error| ClientError::Cache(error.to_string()))
     }
 
     pub fn load_json_file(
