@@ -9,6 +9,7 @@ pub mod blocking;
 pub mod device;
 pub mod entitlements;
 pub mod invite;
+pub mod policy;
 
 use std::collections::HashMap;
 

@@ -4,6 +4,10 @@
 //! enforcement/apt-hook). It is user-space only: a root user can bypass it,
 //! and it only sees packages installed through the hooked package manager.
 
+pub mod allowlist;
+pub mod rollback;
+pub use allowlist::{is_allowed, verify_allowlist, AllowlistDoc, GateError, Keyring};
+
 use pos_core::blocking::{enforce, Capability, Operation, Verdict};
 
 #[derive(Debug, Default)]
