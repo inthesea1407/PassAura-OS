@@ -111,3 +111,22 @@ Note: revoking someone does not revoke people they already invited.
 - First 1000: seed registration is idempotent (retry returns the same seed number, never a second set of invites). In a real service it needs one atomic transaction (a database unique constraint on device id plus a counter row), which this in-memory code only models.
 - Admin: see docs/ADMIN_PANEL.md for roles and re-auth.
 - Vault keys and export do not depend on membership or payment.
+
+## What the package gate does and does not do (pos-gate)
+
+`pos-gate` is user-space decision logic. The caller supplies the package name, the installed
+file list and desktop-entry text; the gate applies heuristics and asks `pos-core::blocking`
+for an `Install` verdict.
+
+- It detects: a fixed list of known package names, selected browser native-messaging-host
+  paths, and password-manager-related fields in desktop entries. A renamed manager that
+  matches none of these is not caught.
+- It does not: open package payloads, verify package signatures or publisher identity,
+  prove that `passaura.premium` is an authentic official build, or check launch, autofill,
+  credential-provider selection or runtime use. Only the install step is judged.
+- `POS_LICENSED=1` is a plain environment flag, not an authenticated licence.
+- Unreadable inputs (file list or desktop entry) make the gate exit 2, and the apt hook
+  treats any non-zero code as block.
+- The apt hook skips an entry whose .deb cannot be found, so that package is outside coverage.
+- Root, a modified build or a fork can bypass it, and only installs that go through the hook
+  are covered. It is not a system-wide security boundary, and nothing here is audited.
