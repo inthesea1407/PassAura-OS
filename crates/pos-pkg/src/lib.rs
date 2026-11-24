@@ -66,14 +66,21 @@ pub fn sign(key: &SigningKey, team: &str, name: &str, version: u32, ents: &[Enti
 pub enum VerifyError {
     BadSignature,
     PayloadHashMismatch,
+    /// team or name has control characters, or is empty. The signed text is
+    /// newline-separated, so such values could blur field boundaries.
+    InvalidManifest,
 }
 
 /// Proof that signature and payload hash both checked out.
 pub struct Verified<'a>(&'a SignedPackage);
 
 pub fn verify<'a>(store_key: &VerifyingKey, p: &'a SignedPackage) -> Result<Verified<'a>, VerifyError> {
+    let bad = |v: &str| v.is_empty() || v.chars().any(|c| c.is_control());
+    if bad(&p.manifest.team) || bad(&p.manifest.name) {
+        return Err(VerifyError::InvalidManifest);
+    }
     let sig = Signature::from_bytes(&p.signature);
-    store_key.verify(&p.manifest.canonical(), &sig).map_err(|_| VerifyError::BadSignature)?;
+    store_key.verify_strict(&p.manifest.canonical(), &sig).map_err(|_| VerifyError::BadSignature)?;
     if sha256(&p.payload) != p.manifest.payload_sha256 {
         return Err(VerifyError::PayloadHashMismatch);
     }
@@ -89,6 +96,15 @@ pub fn decide(v: &Verified, approved: &[Entitlement], sideloaded: bool) -> Insta
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn newline_in_team_or_name_is_rejected() {
+        let k = super::SigningKey::from_bytes(&[7u8; 32]);
+        let p = super::sign(&k, "t\nname=x", "n", 1, &[], b"data");
+        assert!(matches!(super::verify(&k.verifying_key(), &p), Err(super::VerifyError::InvalidManifest)));
+        let p = super::sign(&k, "t", "", 1, &[], b"data");
+        assert!(matches!(super::verify(&k.verifying_key(), &p), Err(super::VerifyError::InvalidManifest)));
+    }
+
     use super::*;
 
     fn key(seed: u8) -> SigningKey {

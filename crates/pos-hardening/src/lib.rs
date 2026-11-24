@@ -14,7 +14,9 @@ fn parse_config(cfg: &str) -> std::collections::HashMap<String, char> {
         let line = line.trim();
         if let Some((k, v)) = line.split_once('=') {
             if k.starts_with("CONFIG_") {
-                m.insert(k.to_string(), if v == "y" { 'y' } else { 'n' });
+                // `m` (loadable module) is neither built in nor disabled.
+                let v = v.split('#').next().unwrap_or("").trim().trim_matches('"');
+                m.insert(k.trim().to_string(), match v { "y" => 'y', "m" => 'm', _ => 'n' });
             }
         }
     }
@@ -45,6 +47,18 @@ pub fn audit(config: &str, profile: &str) -> Vec<Finding> {
 mod tests {
     use super::*;
     const P: &str = "CONFIG_A=y\nCONFIG_B=n\n";
+    #[test]
+    fn module_counts_as_neither_enabled_nor_disabled() {
+        let f = audit("CONFIG_A=m\nCONFIG_B=m\n", P);
+        assert_eq!(f.len(), 2);
+        assert_eq!(f[0].actual, 'm');
+    }
+
+    #[test]
+    fn trailing_comment_is_ignored() {
+        assert!(audit("CONFIG_A=y # note\n", "CONFIG_A=y\n").is_empty());
+    }
+
     #[test]
     fn compliant() {
         assert!(audit("CONFIG_A=y\n# CONFIG_B is not set\n", P).is_empty());
