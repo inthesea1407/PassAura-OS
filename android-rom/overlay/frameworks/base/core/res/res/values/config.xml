@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PassAura OS (POS) - AOSP Framework Resource Overlay (MIT)
+  Configures com.passaura.os as the sole default credential/autofill provider.
+  Zero-budget, no-secrets baseline for PassAura OS (POS).
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Sole default CredentialManager provider package for PassAura OS (POS) -->
+    <string name="config_defaultCredentialManager" translatable="false">com.passaura.os</string>
+
+    <!-- Sole default Autofill service package for PassAura OS (POS) -->
+    <string name="config_defaultAutofillService" translatable="false">com.passaura.os/.autofill.PassAuraAutofillService</string>
+</resources>

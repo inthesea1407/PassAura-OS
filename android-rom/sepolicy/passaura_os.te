@@ -1,0 +1,19 @@
+# PassAura OS (POS) - SELinux Policy Additions for com.passaura.os (MIT)
+# Contains only rules justified by PassAura OS credential/autofill responsibilities.
+# STATUS: UNTESTED in an AOSP build or Android emulator (no AOSP/sepolicy build ran here).
+
+type passaura_os_app, domain;
+app_domain(passaura_os_app)
+net_domain(passaura_os_app)
+
+type passaura_os_data_file, file_type, data_file_type, core_data_file_type;
+
+# Allow PassAura priv-app to manage its own app-private data files (UNTESTED)
+allow passaura_os_app passaura_os_data_file:dir create_dir_perms;
+allow passaura_os_app passaura_os_data_file:file create_file_perms;
+
+# Allow binder calls to system services required for credential/autofill mediation (UNTESTED)
+allow passaura_os_app system_server:binder call;
+
+# Explicitly block other untrusted app domains from writing PassAura's data files (UNTESTED)
+neverallow { domain -passaura_os_app -init -system_server } passaura_os_data_file:{ file dir lnk_file sock_file fifo_file } write;

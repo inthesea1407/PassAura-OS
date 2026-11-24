@@ -1,0 +1,5 @@
+# PassAura OS (POS) - SELinux File Contexts for com.passaura.os (MIT)
+# STATUS: UNTESTED in an AOSP build or Android emulator (no AOSP/sepolicy build ran here).
+
+/system/priv-app/PassAuraOS(/.*)?          u:object_r:system_file:s0
+/data/misc/passaura_os(/.*)?              u:object_r:passaura_os_data_file:s0

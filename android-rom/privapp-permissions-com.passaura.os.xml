@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PassAura OS (POS) - Privileged Permissions Allowlist for com.passaura.os (MIT)
+  Grants privileged permissions needed by the sole approved credential/autofill app.
+  STATUS: UNTESTED in an AOSP build or Android emulator.
+-->
+<permissions>
+    <privapp-permissions package="com.passaura.os">
+        <!-- Read/manage device policy and credential/autofill state -->
+        <permission name="android.permission.MANAGE_DEVICE_ADMINS" />
+        <permission name="android.permission.READ_PRIVILEGED_PHONE_STATE" />
+        <permission name="android.permission.INTERACT_ACROSS_USERS" />
+    </privapp-permissions>
+</permissions>

@@ -24,7 +24,8 @@ class ProvisioningStatusViewModelTest {
     @Before
     fun setup() {
         fakeDpm = FakeDevicePolicyManagerWrapper()
-        adminComponent = ComponentName("com.passaura.os", "com.passaura.os.admin.PassAuraDeviceAdminReceiver")
+        adminComponent = mockk(relaxed = true)
+        every { adminComponent.packageName } returns "com.passaura.os"
 
         val sharedPrefs: SharedPreferences = mockk(relaxed = true)
         every { sharedPrefs.getString("device_id", null) } returns null
