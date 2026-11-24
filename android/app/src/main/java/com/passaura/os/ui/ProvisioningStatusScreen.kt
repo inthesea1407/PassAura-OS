@@ -24,7 +24,6 @@ fun ProvisioningStatusScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val d_talkback_refresh_button = stringResource(R.string.talkback_refresh_button)
     val dpm = context.getSystemService(android.content.Context.DEVICE_POLICY_SERVICE)
             as android.app.admin.DevicePolicyManager
     val dpmWrapper: DevicePolicyManagerWrapper = remember { RealDevicePolicyManagerWrapper(dpm) }
@@ -51,6 +50,7 @@ internal fun ProvisioningStatusContent(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val d_talkback_refresh_button = stringResource(R.string.talkback_refresh_button)
 
     Column(
         modifier = Modifier
