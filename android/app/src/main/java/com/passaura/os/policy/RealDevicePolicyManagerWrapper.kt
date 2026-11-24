@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.policy
 
 import android.app.admin.DevicePolicyManager

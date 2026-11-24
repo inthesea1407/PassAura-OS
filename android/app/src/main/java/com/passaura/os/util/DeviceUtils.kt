@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.util
 
 import android.content.Context

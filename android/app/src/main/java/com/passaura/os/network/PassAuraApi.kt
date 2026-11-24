@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.network
 
 import retrofit2.Response

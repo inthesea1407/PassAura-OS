@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.policy
 
 import android.content.ComponentName

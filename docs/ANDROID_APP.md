@@ -1,4 +1,3 @@
-markdown
 # PassAura OS Android App
 
 ## Overview

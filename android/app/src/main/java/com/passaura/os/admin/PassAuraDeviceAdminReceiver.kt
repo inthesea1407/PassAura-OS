@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.admin
 
 import android.app.admin.DeviceAdminReceiver

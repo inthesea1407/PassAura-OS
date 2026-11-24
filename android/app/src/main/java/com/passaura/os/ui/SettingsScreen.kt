@@ -1,4 +1,3 @@
-kotlin
 package com.passaura.os.ui
 
 import androidx.compose.foundation.layout.*
