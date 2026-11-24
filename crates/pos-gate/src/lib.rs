@@ -5,6 +5,8 @@
 //! and it only sees packages installed through the hooked package manager.
 
 pub mod allowlist;
+pub mod allowlist_signing;
+pub mod linux_backend;
 pub mod rollback;
 pub use allowlist::{is_allowed, verify_allowlist, AllowlistDoc, GateError, Keyring};
 

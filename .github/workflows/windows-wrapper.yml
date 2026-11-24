@@ -1,0 +1,21 @@
+name: Windows wrapper (Pester)
+on:
+  push:
+    paths: ['image/windows/Invoke-PosGate*.ps1', '.github/workflows/windows-wrapper.yml']
+  pull_request:
+    paths: ['image/windows/Invoke-PosGate*.ps1']
+permissions:
+  contents: read
+jobs:
+  pester:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Pester 5
+        shell: pwsh
+        run: Install-Module Pester -MinimumVersion 5.0 -Force -SkipPublisherCheck -Scope CurrentUser
+      - name: Run tests
+        shell: pwsh
+        run: |
+          Import-Module Pester -MinimumVersion 5.0
+          Invoke-Pester -Path image/windows/Invoke-PosGate.Tests.ps1 -CI -Output Detailed
