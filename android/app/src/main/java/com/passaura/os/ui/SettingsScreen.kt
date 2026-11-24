@@ -19,8 +19,9 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(prefs: AppPreferences) {
+    val d_redeem_code_label = stringResource(R.string.redeem_code_label)
+    val d_redeem_button = stringResource(R.string.redeem_button)
     val context = LocalContext.current
-    val redeemDesc = stringResource(R.string.redeem_button)
     val scope = rememberCoroutineScope()
     var redeemCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -56,7 +57,7 @@ fun SettingsScreen(prefs: AppPreferences) {
             label = { Text(stringResource(R.string.redeem_code_label)) },
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { contentDescription = stringResource(R.string.redeem_code_label) },
+                .semantics { contentDescription = d_redeem_code_label },
             enabled = !isLoading
         )
         
@@ -87,7 +88,7 @@ fun SettingsScreen(prefs: AppPreferences) {
                 }
             },
             enabled = !isLoading && redeemCode.isNotBlank() && prefs.deviceId != null,
-            modifier = Modifier.semantics { contentDescription = redeemDesc }
+            modifier = Modifier.semantics { contentDescription = d_redeem_button }
         ) {
             if (isLoading) {
                 CircularProgressIndicator(

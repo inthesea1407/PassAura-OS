@@ -20,6 +20,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FirstRunScreen(prefs: AppPreferences) {
+    val d_invite_code_label = stringResource(R.string.invite_code_label)
+    val d_register_button = stringResource(R.string.register_button)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var inviteCode by remember { mutableStateOf("") }
@@ -48,7 +50,7 @@ fun FirstRunScreen(prefs: AppPreferences) {
             label = { Text(stringResource(R.string.invite_code_label)) },
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { contentDescription = stringResource(R.string.invite_code_label) },
+                .semantics { contentDescription = d_invite_code_label },
             enabled = !isLoading
         )
         
@@ -77,7 +79,7 @@ fun FirstRunScreen(prefs: AppPreferences) {
                 }
             },
             enabled = !isLoading,
-            modifier = Modifier.semantics { contentDescription = stringResource(R.string.register_button) }
+            modifier = Modifier.semantics { contentDescription = d_register_button }
         ) {
             if (isLoading) {
                 CircularProgressIndicator(
