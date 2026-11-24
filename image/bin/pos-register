@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stub first-boot invite/registration handler for PassAura OS.
+# Reads an invite code from a local file and records registration state locally.
+# Intentionally does NOT implement HTTP or network calls.
+
+INVITE_FILE="${PASSAURA_INVITE_FILE:-/etc/passaura/invite.code}"
+STATE_DIR="${PASSAURA_STATE_DIR:-/var/lib/passaura}"
+RECORD_FILE="${STATE_DIR}/registration.json"
+
+mkdir -p "${STATE_DIR}"
+chmod 0700 "${STATE_DIR}"
+
+if [ ! -s "${INVITE_FILE}" ]; then
+  echo "pos-register: no invite code found at ${INVITE_FILE}; deferring registration." >&2
+  exit 0
+fi
+
+# Read first non-empty, non-comment line and trim whitespace
+INVITE_CODE="$(grep -vE '^[[:space:]]*(#|$)' "${INVITE_FILE}" | head -n 1 | tr -d '[:space:]')"
+
+if [ -z "${INVITE_CODE}" ]; then
+  echo "pos-register: invite file ${INVITE_FILE} contains no valid token." >&2
+  exit 1
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  CODE_HASH="$(printf '%s' "${INVITE_CODE}" | sha256sum | awk '{print $1}')"
+else
+  CODE_HASH="unavailable"
+fi
+
+TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
+
+cat > "${RECORD_FILE}" <<EOF
+{
+  "status": "registered_stub",
+  "mode": "local-file-only",
+  "hostname": "${HOSTNAME_VAL}",
+  "invite_sha256": "${CODE_HASH}",
+  "registered_at": "${TIMESTAMP}"
+}
+EOF
+chmod 0600 "${RECORD_FILE}"
+
+# Consume/clear plaintext invite file after local recording
+: > "${INVITE_FILE}"
+chmod 0600 "${INVITE_FILE}"
+
+echo "pos-register: recorded stub registration (sha256=${CODE_HASH})."
+

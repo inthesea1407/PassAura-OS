@@ -1,17 +1,74 @@
-name: debian-image-smoke
-on: workflow_dispatch
+name: Image Smoke Build & Verify
+# merged: Gemini build/verify + original real-.deb gate test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "image/**"
+      - "enforcement/**"
+      - "profiles/**"
+      - "selinux/**"
+      - "policies/**"
+      - ".github/workflows/image-smoke.yml"
+      - "docs/IMAGE.md"
+  pull_request:
+    paths:
+      - "image/**"
+      - "enforcement/**"
+      - "profiles/**"
+      - "selinux/**"
+      - "policies/**"
+      - ".github/workflows/image-smoke.yml"
+      - "docs/IMAGE.md"
+
 jobs:
-  smoke:
+  image-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --release -p pos-gate
-      - name: Build minimal Debian rootfs
+
+      - name: Install free image build tools
         run: |
-          sudo apt-get update && sudo apt-get install -y debootstrap
-          sudo debootstrap --variant=minbase stable /tmp/rootfs http://deb.debian.org/debian
-      - name: Gate test on real .debs
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends mmdebstrap debootstrap apparmor-utils
+
+      - name: Check SELinux policy tools if installed (non-blocking report)
+        run: |
+          if command -v checkmodule >/dev/null 2>&1; then
+            checkmodule -M -m -o /tmp/passaura_pmgate.mod selinux/passaura_pmgate.te || true
+          else
+            echo "checkmodule not installed on runner; selinux/passaura_pmgate.te remains an uncompiled draft."
+          fi
+
+      - name: Build minimal Debian image
+        env:
+          DEBIAN_SUITE: bookworm
+          DEBIAN_ARCH: amd64
+          SOURCE_DATE_EPOCH: "1735689600"
+        run: |
+          chmod +x image/build.sh image/verify.sh image/bin/pos-register enforcement/apt-hook.sh
+          sudo -E env "PATH=$PATH" ./image/build.sh
+
+      - name: Verify built rootfs against hardening profile
+        run: |
+          ./image/verify.sh out/rootfs
+
+      - name: Smoke test pos-register stub with temporary invite file
+        run: |
+          TMP_INVITE="$(mktemp)"
+          TMP_STATE="$(mktemp -d)"
+          printf 'PASSAURA-INVITE-TEST-0001\n' > "${TMP_INVITE}"
+          PASSAURA_INVITE_FILE="${TMP_INVITE}" PASSAURA_STATE_DIR="${TMP_STATE}" ./image/bin/pos-register
+          test -f "${TMP_STATE}/registration.json"
+          rm -rf "${TMP_INVITE}" "${TMP_STATE}"
+
+      - name: Gate test on real .deb (must be blocked)
         run: |
           export PATH=$PWD/target/release:$PATH
           cd /tmp && mkdir -p t/p/DEBIAN t/p/usr/lib/mozilla/native-messaging-hosts

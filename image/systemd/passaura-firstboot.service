@@ -1,0 +1,14 @@
+[Unit]
+Description=PassAura OS First-Boot Invite Registration Stub
+After=local-fs.target
+ConditionPathExists=!/var/lib/passaura/registration.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pos-register
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+
