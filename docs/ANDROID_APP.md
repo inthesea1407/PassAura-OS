@@ -29,3 +29,4 @@ adb shell dpm set-device-owner com.passaura.os/.admin.PassAuraDeviceAdminReceive
 - Merged: Arabic/English strings, ErrorMessageMapper (+test), SettingsScreen using string resources.
 - Kept ours over Qwen's copies: the HW_ID_SALT BuildConfig (the salt is public domain separation, not a secret, so no CI secret), the platform theme (Material3 XML theme needs an extra dependency), and the CI workflow (Gradle installed in CI, no wrapper).
 - FirstRunScreen.kt from Qwen was a 9-line stub; the full screen from round 1 is kept.
+- Qwen's round-2 SettingsScreen.kt was truncated (cut off mid-function, did not compile); the round-1 screen is kept. i18n strings are in place but not yet wired into the screens (task 2).
