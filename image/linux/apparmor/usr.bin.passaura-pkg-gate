@@ -9,7 +9,7 @@ profile passaura-pkg-gate /usr/local/bin/passaura-pkg-gate.sh flags=(complain) {
   #include <abstractions/bash>
 
   # Allow executing the gate script and bash interpreter
-  /usr/local/bin/passaura-pkg-gate.sh mr rix,
+  /usr/local/bin/passaura-pkg-gate.sh rix,
   /bin/bash ix,
   /usr/bin/bash ix,
 

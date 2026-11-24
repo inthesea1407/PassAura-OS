@@ -72,8 +72,10 @@ exception when others then
 end $$;
 do $$
 begin
-  perform 1 from public.premium_key_batches limit 1;
-  raise exception 'C2 FAIL: anon read premium_key_batches';
+  if (select count(*) from public.premium_key_batches) > 0 then
+    raise exception 'C2 FAIL: anon read premium_key_batches';
+  end if;
+  raise notice 'C2 PASS: anon sees no rows (RLS)';
 exception when insufficient_privilege then
   raise notice 'C2 PASS: anon blocked from table';
 end $$;

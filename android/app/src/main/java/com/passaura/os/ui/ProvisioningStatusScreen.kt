@@ -24,6 +24,7 @@ fun ProvisioningStatusScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val d_talkback_refresh_button = stringResource(R.string.talkback_refresh_button)
     val dpm = context.getSystemService(android.content.Context.DEVICE_POLICY_SERVICE)
             as android.app.admin.DevicePolicyManager
     val dpmWrapper: DevicePolicyManagerWrapper = remember { RealDevicePolicyManagerWrapper(dpm) }
@@ -112,7 +113,7 @@ internal fun ProvisioningStatusContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics {
-                    contentDescription = stringResource(R.string.talkback_refresh_button)
+                    contentDescription = d_talkback_refresh_button
                 }
         ) {
             Text(stringResource(R.string.refresh_button))
