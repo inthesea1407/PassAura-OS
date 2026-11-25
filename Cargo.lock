@@ -1126,6 +1126,17 @@ name = "pos-platform"
 version = "0.1.0"
 
 [[package]]
+name = "pos-vault-store"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "getrandom 0.2.17",
+ "pos-crypto-suites",
+ "tempfile",
+ "zeroize",
+]
+
+[[package]]
 name = "pos-windows"
 version = "0.1.0"
 dependencies = [
