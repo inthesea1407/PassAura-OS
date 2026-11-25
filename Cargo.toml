@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["crates/pos-core", "crates/pos-android", "crates/pos-windows", "crates/pos-hardening", "crates/pos-linux", "crates/pos-gate", "crates/pos-pkg", "crates/pos-client", "crates/pos-platform", "crates/pos-cli", "crates/pos-install", "crates/pos-netpolicy"]
+members = ["crates/pos-core", "crates/pos-android", "crates/pos-windows", "crates/pos-hardening", "crates/pos-linux", "crates/pos-gate", "crates/pos-pkg", "crates/pos-client", "crates/pos-platform", "crates/pos-cli", "crates/pos-crypto-suites", "crates/pos-install", "crates/pos-netpolicy"]

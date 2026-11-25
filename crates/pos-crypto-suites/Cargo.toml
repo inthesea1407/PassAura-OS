@@ -1,0 +1,18 @@
+[package]
+name = "pos-crypto-suites"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Pure-function cipher suites for POS: layered AEAD, Argon2id tiers, hybrid X25519+ML-KEM-768 key wrap"
+license = "MIT"
+
+[dependencies]
+aes-gcm = "0.10"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+hkdf = "0.12"
+sha2 = "0.10"
+zeroize = "1"
+getrandom = "0.2"
+ml-kem = { version = "0.3.4", features = ["zeroize", "getrandom"] }
+x25519-dalek = { version = "3", default-features = false, features = ["zeroize", "getrandom"] }
