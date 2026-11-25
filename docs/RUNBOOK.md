@@ -4,7 +4,7 @@
 **Audience:** The project owner (single-operator deployment).
 
 > **Free-tier reality check.** Supabase's free plan does **not** include automated
-> database backups [citation:13]. Every backup described here is a logical dump you
+> database backups. Every backup described here is a logical dump you
 > run yourself. Treat this runbook as the only thing standing between your data and
 > a deleted project.
 

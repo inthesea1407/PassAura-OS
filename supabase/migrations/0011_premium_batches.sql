@@ -32,7 +32,7 @@ create policy premium_key_batches_owner_select on public.premium_key_batches
 -- premium_keys.
 --
 -- Keys are 'PA-' || 20 hex chars (10 random bytes). gen_random_bytes is
--- cryptographically strong [citation:2][citation:7].
+-- cryptographically strong.
 -- ---------------------------------------------------------------------------
 create or replace function public.generate_premium_keys(
   p_batch_label text,

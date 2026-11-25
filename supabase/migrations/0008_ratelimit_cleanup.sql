@@ -11,7 +11,7 @@
 
 begin;
 
--- pg_cron is available on all Supabase plans including free [citation:4].
+-- pg_cron is available on all Supabase plans including free.
 -- Create it in the extensions schema per Supabase convention.
 
 -- Cleanup function: deletes up to p_limit expired rows per call.
@@ -45,7 +45,7 @@ grant execute on function public.cleanup_rate_limits(int,int) to service_role;
 
 -- Schedule: every 15 minutes, delete rows older than 24 hours, max 5000/run.
 -- 5000 * 96 runs/day = 480k rows/day cleanup capacity, far above the
--- steady-state arrival rate for a free-tier project. Uses UTC [citation:4].
+-- steady-state arrival rate for a free-tier project. Uses UTC.
 -- cron.schedule is idempotent on jobname: re-running this migration replaces
 -- the schedule rather than duplicating it.
 do $do$

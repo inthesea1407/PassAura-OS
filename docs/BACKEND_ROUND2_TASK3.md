@@ -12,7 +12,7 @@ Migrations `0001`–`0009` are unchanged. `0011_premium_batches.sql` is new.
 - **`generate_premium_keys(p_batch_label, p_count, p_valid_days, p_project)`**
   — `security definer`, `search_path = ''`, re-checks `is_owner()`. Inserts a
   batch row, then for each key: generates `'PA-' || upper(encode(gen_random_bytes(10),
-  'hex'))` (cryptographically strong per pgcrypto [citation:2][citation:7]),
+  'hex'))` (cryptographically strong per pgcrypto),
   stores only `encode(digest(v_code, 'sha256'), 'hex')` in `premium_keys`,
   and accumulates the plaintext in a local `text[]`. **Returns the plaintext
   array once; never writes it to any table, log, or audit entry.**
@@ -39,7 +39,7 @@ Migrations `0001`–`0009` are unchanged. `0011_premium_batches.sql` is new.
   at once via `navigator.clipboard`. The list is cleared on "Dismiss" and on
   page unload. **Keys never touch `localStorage`, `sessionStorage`, URL
   params, `console.log`, or any network request.** This mirrors the one-time
-  reveal pattern used for API tokens [citation:19].
+  reveal pattern used for API tokens.
 - **Escaper:** same complete map (`& < > " ' `` ` ``) as `app.js` (F8).
 - **No inline secrets:** all RPC calls use the public anon key from
   `config.js`; authorization is enforced server-side by `is_owner()`.

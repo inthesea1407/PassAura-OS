@@ -168,7 +168,7 @@ create index if not exists audit_log_created_at_idx
 -- alone) in the SQL editor after the owner has approved retention policy.
 -- pg_cron is available on the Supabase free tier; jobs run as the postgres
 -- role and bypass RLS, which is why cleanup_audit_log is revoked from
--- anon/authenticated and granted only to service_role [citation:6].
+-- anon/authenticated and granted only to service_role.
 -- ---------------------------------------------------------------------------
 -- create extension if not exists pg_cron with schema extensions;
 -- select cron.schedule(
