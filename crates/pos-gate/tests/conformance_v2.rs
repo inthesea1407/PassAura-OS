@@ -47,10 +47,11 @@ fn case(name: &str, d: &V2Allowlist, now: i64, stored: Option<(u64, String)>) ->
         "now": now,
         "stored": stored.map(|(s, h)| json!({"sequence": s, "digest_hex": h})),
         "document": d,
-        "expect": match r { Ok(()) => "ok".to_string(), Err(e) => format!("{:?}", e).split(|c| c == '(' || c == ' ').next().unwrap().to_string() },
+        "expect": match r { Ok(()) => "ok".to_string(), Err(e) => format!("{:?}", e).split(['(', ' ']).next().unwrap().to_string() },
     })
 }
 
+#[allow(clippy::vec_init_then_push)]
 fn build() -> Value {
     let sk = key();
     let good = sign(doc(&sk, 5), &sk);
@@ -121,7 +122,7 @@ fn vectors_match_committed_file_and_implementation() {
         let d: V2Allowlist = serde_json::from_value(c["document"].clone()).unwrap();
         let stored = c["stored"].as_object().map(|o| (o["sequence"].as_u64().unwrap(), o["digest_hex"].as_str().unwrap().to_string()));
         let r = verify_v2(&d, c["now"].as_i64().unwrap(), stored.as_ref().map(|(s, h)| (*s, h.as_str())));
-        let got = match r { Ok(()) => "ok".to_string(), Err(e) => format!("{:?}", e).split(|ch| ch == '(' || ch == ' ').next().unwrap().to_string() };
+        let got = match r { Ok(()) => "ok".to_string(), Err(e) => format!("{:?}", e).split(['(', ' ']).next().unwrap().to_string() };
         assert_eq!(got, c["expect"].as_str().unwrap(), "case {}", c["name"]);
     }
 }

@@ -46,17 +46,14 @@ fn arb_policy() -> impl Strategy<Value = Policy> {
 
 /// Request over a policy's own source list plus an unknown alternative,
 /// so both source branches are exercised.
+#[allow(dead_code)]
 fn arb_request_for(policy: &Policy) -> Request {
     let known = policy
         .allowed_sources
         .first()
         .cloned()
         .unwrap_or_else(|| "known-source".to_string());
-    let source = if policy.mode == Mode::Allowlist {
-        known
-    } else {
-        known
-    };
+    let source = known;
     Request {
         package_name: "pkg".to_string(),
         source,
@@ -102,7 +99,7 @@ proptest! {
 
         // Decision semantics: Allow exactly when no rule is violated.
         let rules_pass = req.size_mb <= max_size
-            && policy.allowed_sources.iter().any(|s| *s == req.source)
+            && policy.allowed_sources.contains(&req.source)
             && (req.signed || !require_sig);
         prop_assert_eq!(
             matches!(d, Decision::Allow),
@@ -271,9 +268,9 @@ proptest! {
 
 // ---------- P6: differential oracle (inspectable reference model) ----------
 
-/// Reference model written directly from docs/POLICY.md, independent of the
-/// engine's control flow. Request sources are drawn either from the
-/// allowlist (allowed-source branch) or from a fixed unknown string.
+// Reference model written directly from docs/POLICY.md, independent of the
+// engine's control flow. Request sources are drawn either from the
+// allowlist (allowed-source branch) or from a fixed unknown string.
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
@@ -305,7 +302,7 @@ proptest! {
         // Reference model: size -> source -> signature, first failure wins.
         let code = if req.size_mb > max_size {
             Some(ReasonCode::SizeExceeded)
-        } else if !policy.allowed_sources.iter().any(|s| *s == req.source) {
+        } else if !policy.allowed_sources.contains(&req.source) {
             Some(ReasonCode::SourceNotAllowed)
         } else if require_sig && !signed {
             Some(ReasonCode::SignatureRequired)

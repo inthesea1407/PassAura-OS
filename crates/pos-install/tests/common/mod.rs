@@ -26,6 +26,7 @@ pub struct Fake {
     pub runs: Arc<AtomicUsize>,
     pub fail: Arc<Mutex<bool>>,
     /// When set, the failure carries this (code, message) instead of exit 1.
+    #[allow(clippy::type_complexity)]
     pub fail_as: Arc<Mutex<Option<(Option<i32>, String)>>>,
     pub seen_paths: Arc<Mutex<Vec<PathBuf>>>,
 }

@@ -6,7 +6,7 @@
 //! Not yet: key rotation/revocation lists, timestamping, reproducible
 //! builds, hardware-backed signing keys (the store key must live in an HSM).
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use pos_core::entitlements::{install_decision, Entitlement, InstallVerdict, Manifest};
 use sha2::{Digest, Sha256};
 

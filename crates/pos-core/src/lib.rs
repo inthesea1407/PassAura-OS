@@ -178,7 +178,7 @@ impl PolicyEngine {
         for g in s.grants.iter().filter(|g| g.action == action && covers(&g.resource, resource)) {
             if g.revoked {
                 reason = DenyReason::Revoked;
-            } else if g.expires_at.map_or(false, |t| now >= t) {
+            } else if g.expires_at.is_some_and(|t| now >= t) {
                 reason = DenyReason::Expired;
             } else {
                 return Decision::Allow;

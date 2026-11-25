@@ -769,10 +769,12 @@ mod tests {
 
         const CONTENT: &[u8] = b"pretend this is a .deb";
 
+        type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+        type Script = Arc<Mutex<Vec<Result<CommandOutput, String>>>>;
         #[derive(Clone)]
         struct Fake {
-            calls: Arc<Mutex<Vec<(String, Vec<String>)>>>,
-            script: Arc<Mutex<Vec<Result<CommandOutput, String>>>>,
+            calls: Calls,
+            script: Script,
         }
         impl Fake {
             fn new(script: Vec<Result<CommandOutput, String>>) -> Self {
@@ -938,7 +940,7 @@ mod tests {
         fn unknown_outcome_then_abandon_runs_nothing_and_unblocks() {
             let e = Env::new("ab");
             let f = Fake::new(vec![Err("wait failed".into()), ok()]);
-            run_pipeline_install(f.clone(), e.args(false, None));
+            let _ = run_pipeline_install(f.clone(), e.args(false, None));
             assert!(e.journal());
             assert_eq!(
                 code(run_pipeline_install(f.clone(), e.args(false, Some(RecoverMode::Abandon)))),
@@ -966,7 +968,7 @@ mod tests {
         fn torn_journal_fails_closed_for_install_retry_and_abandon() {
             let e = Env::new("torn");
             let f = Fake::new(vec![Err("wait failed".into())]);
-            run_pipeline_install(f.clone(), e.args(false, None));
+            let _ = run_pipeline_install(f.clone(), e.args(false, None));
             let jp = e.dir.join("state.json.install-journal");
             let mut b = std::fs::read(&jp).unwrap();
             assert_eq!(b.pop(), Some(b'\n'));

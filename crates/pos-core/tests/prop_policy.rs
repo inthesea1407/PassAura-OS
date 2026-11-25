@@ -36,6 +36,7 @@ fn arb_resource() -> impl Strategy<Value = String> {
 
 /// A deny rule that definitely covers (resource, action): either the
 /// resource itself, its first-level parent, or "*".
+#[allow(dead_code)]
 fn arb_covering_deny(resource: String, action: Action) -> BoxedStrategy<(String, Action)> {
     let r1 = resource.clone();
     let parent = resource
@@ -220,7 +221,6 @@ proptest! {
         (engine, sid, resource, action, now) in arb_engine_and_query(),
         now2 in 0u64..300,
     ) {
-        let engine = engine;
         // Deterministic at a fixed instant: run three times.
         let a = engine.check(&sid, &resource, action, now);
         let b = engine.check(&sid, &resource, action, now);

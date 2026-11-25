@@ -350,7 +350,7 @@ fn state_is_per_channel() {
     // caller passes None for a first-seen channel: seq 1 is fine although A is at 9
     let b = verify_envelope(&b_env, &pb, None).unwrap();
     assert_eq!(b.state.channel, "beta");
-    assert_eq!(verify_envelope(&ok2(&mk_chan(1, "beta")), &pb, Some(&b.state)).unwrap().idempotent, true);
+    assert!(verify_envelope(&ok2(&mk_chan(1, "beta")), &pb, Some(&b.state)).unwrap().idempotent);
     // state for stable still works for stable
     assert_eq!(verify_envelope(&ok2(&manifest(8)), &pol(&k, 2), Some(&a.state)), Err(UpdateError::Rollback));
 }

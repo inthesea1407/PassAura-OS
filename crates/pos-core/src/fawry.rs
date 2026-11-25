@@ -5,6 +5,7 @@
 //! messageSignature = SHA-256 hex of
 //!   fawryRefNumber + merchantRefNumber + paymentAmount + orderAmount + orderStatus
 //!   + paymentMethod + paymentRefrenceNumber (empty when absent) + secureKey
+//!
 //! with amounts in two-decimal form. It has not been run against a real Fawry account.
 
 use sha2::{Digest, Sha256};

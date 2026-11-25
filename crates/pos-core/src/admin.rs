@@ -179,6 +179,7 @@ impl AccessControl {
     /// - FreeInvite or Closed: active members keep access
     /// - Paid + NewOnly: everyone already in keeps access, new joiners paid
     /// - Paid + Everyone: only members with a recorded payment have access
+    ///
     /// Vault export is separate and never depends on this.
     pub fn has_access(&self, id: &str) -> bool {
         if !self.book.is_active(id) {

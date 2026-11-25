@@ -384,6 +384,7 @@ pub struct WindowsPolicyPlan {
     pub registry_values: Vec<RegistryValue>,
 }
 
+#[allow(dead_code)] // scaffold: fields are used once the backend is wired
 pub struct WindowsBackend<R: CommandRunner, F: Fs> {
     runner: R,
     fs: F,
@@ -508,6 +509,7 @@ pub struct AndroidPolicyRequest {
     pub enforcement_scope: String,
 }
 
+#[allow(dead_code)] // scaffold: fields are used once the backend is wired
 pub struct AndroidBackend<R: CommandRunner, F: Fs> {
     runner: R,
     fs: F,

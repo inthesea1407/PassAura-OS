@@ -431,7 +431,7 @@ fn looks_like_rfc3339(value: &str) -> bool {
         && value.as_bytes().get(10) == Some(&b'T')
         && value.as_bytes().get(13) == Some(&b':')
         && value.as_bytes().get(16) == Some(&b':')
-        && (value.ends_with('Z') || value.contains('+') || value.rfind('-').map_or(false, |i| i > 10))
+        && (value.ends_with('Z') || value.contains('+') || value.rfind('-').is_some_and(|i| i > 10))
 }
 
 

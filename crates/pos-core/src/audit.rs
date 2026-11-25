@@ -601,10 +601,7 @@ mod tests {
         // passes, as documented. Only the anchor exposes the loss.
         verify_chain(&full[..1]).expect("truncated prefix is locally valid");
         let truncated = &full[..1];
-        assert!(matches!(
-            AuditLog::<FixedClock>::verify_anchored(truncated, &anchor),
-            Err(_)
-        ));
+        assert!(AuditLog::<FixedClock>::verify_anchored(truncated, &anchor).is_err());
         AuditLog::<FixedClock>::verify_anchored(&full, &anchor).expect("full chain matches anchor");
     }
 

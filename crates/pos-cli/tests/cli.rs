@@ -713,7 +713,7 @@ fn legacy_state_write_is_refused_while_another_process_holds_the_lock() {
     let dir = TempDir::new().unwrap();
     let (kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
     let state = dir.path().join("state.json");
-    let lock = fs::OpenOptions::new().create(true).write(true).open(dir.path().join("state.json.lock")).unwrap();
+    let lock = fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.path().join("state.json.lock")).unwrap();
     lock.try_lock().unwrap();
     bin()
         .args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--state", state.to_str().unwrap()])

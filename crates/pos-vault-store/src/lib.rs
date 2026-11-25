@@ -169,10 +169,11 @@ fn rand_array<const N: usize>(rng: &mut dyn Random) -> Result<[u8; N], Error> {
     Ok(a)
 }
 
-type KdfFn<'a> = &'a dyn Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Zeroizing<[u8; 32]>, Error>;
+type Key32 = Zeroizing<[u8; 32]>;
+type KdfFn<'a> = &'a dyn Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error>;
 
 /// Production KDF: bounds check for `tier`, then `pos-crypto-suites` Argon2id (which checks again).
-fn derive_kek(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Zeroizing<[u8; 32]>, Error> {
+fn derive_kek(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> {
     move |pass, salt, p| {
         check_params(p, tier)?;
         if pass.is_empty() {
@@ -499,8 +500,9 @@ mod tests {
 
     /// Real Argon2 output, memoized per (pass, salt, params). Same results as the real KDF for every
     /// input, so a flip in salt or params still gets a different, real KEK. Only repeated work is skipped.
-    fn memo_kdf(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Zeroizing<[u8; 32]>, Error> {
-        let cache: RefCell<HashMap<(Vec<u8>, [u8; SALT_LEN], u32, u32, u32), [u8; 32]>> = RefCell::new(HashMap::new());
+    fn memo_kdf(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> {
+        type CacheKey = (Vec<u8>, [u8; SALT_LEN], u32, u32, u32);
+        let cache: RefCell<HashMap<CacheKey, [u8; 32]>> = RefCell::new(HashMap::new());
         let real = derive_kek(tier);
         move |pass, salt, p| {
             let key = (pass.to_vec(), *salt, p.m_kib, p.t, p.p);
@@ -604,7 +606,7 @@ mod tests {
         }
     }
 
-    fn counting(calls: &Cell<u32>) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Zeroizing<[u8; 32]>, Error> + '_ {
+    fn counting(calls: &Cell<u32>) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> + '_ {
         move |_, _, _| {
             calls.set(calls.get() + 1);
             Ok(Zeroizing::new([0u8; 32]))

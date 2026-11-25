@@ -77,6 +77,7 @@ fn failed_install_does_not_advance_the_sequence() {
 #[test]
 fn rejected_requests_run_nothing_stage_nothing_and_audit_a_denial() {
     let t = trusted();
+    #[allow(clippy::type_complexity)]
     let cases: Vec<(&str, Box<dyn Fn(&Env) -> (pos_gate::allowlist_v2::V2Allowlist, pos_gate::allowlist::Keyring, i64, &'static str)>)> = vec![
         ("unsigned", Box::new(|_| { let mut d = good_doc(3); d.signature_hex = String::new(); (d, trusted(), NOW, PKG) })),
         ("expired", Box::new(|_| (good_doc(3), trusted(), ISSUED + 999_999, PKG))),

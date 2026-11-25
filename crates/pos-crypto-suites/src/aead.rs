@@ -50,7 +50,9 @@ fn full_aad(suite: Suite, aad: &[u8]) -> Vec<u8> {
     v
 }
 
-fn layer_keys(dek: &[u8; 32]) -> Result<(Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>), CryptoError> {
+type Key32 = Zeroizing<[u8; 32]>;
+
+fn layer_keys(dek: &[u8; 32]) -> Result<(Key32, Key32), CryptoError> {
     let hk = Hkdf::<Sha256>::new(None, dek);
     let mut a = Zeroizing::new([0u8; 32]);
     let mut c = Zeroizing::new([0u8; 32]);

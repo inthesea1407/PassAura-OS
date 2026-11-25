@@ -269,12 +269,18 @@ fn effective_index(atts: &[Attempt]) -> usize {
     i
 }
 
+/// Test-only fault injection hook: returns true to abort at the named step.
+type FaultHook = Box<dyn FnMut(&str) -> bool>;
+
+/// Result of resolving a request: allowlist entry, package file name, optional (sequence, digest).
+type Resolved = (V2Entry, String, Option<(u64, String)>);
+
 pub struct Pipeline<B, F, O> {
     paths: InstallPaths,
     backend: B,
     fetcher: F,
     ops: O,
-    fault: Option<Box<dyn FnMut(&str) -> bool>>,
+    fault: Option<FaultHook>,
 }
 
 impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
@@ -402,7 +408,7 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
     fn check_request(
         &self,
         req: &Request,
-    ) -> Result<(V2Entry, String, Option<(u64, String)>), InstallError> {
+    ) -> Result<Resolved, InstallError> {
         if !valid_package_name(req.package) {
             return Err(InstallError::InvalidPackageName);
         }
@@ -466,11 +472,8 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
 
     pub fn install(&mut self, req: &Request) -> Result<Outcome, InstallError> {
         let _lock = StateLock::acquire(&self.paths.state, self.paths.lock_timeout)?;
-        match self.recover_locked()? {
-            s @ (RecoveryStatus::Indeterminate { .. } | RecoveryStatus::Superseded { .. }) => {
-                return Err(InstallError::Blocked(s))
-            }
-            _ => {}
+        if let s @ (RecoveryStatus::Indeterminate { .. } | RecoveryStatus::Superseded { .. }) = self.recover_locked()? {
+            return Err(InstallError::Blocked(s))
         }
         self.run_attempt(req, None, None)
     }

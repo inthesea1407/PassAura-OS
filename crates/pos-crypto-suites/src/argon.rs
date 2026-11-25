@@ -8,6 +8,7 @@
 //! - ceiling (so an untrusted header cannot exhaust memory): m <= RAM/8 of the READING device's
 //!   tier, t <= 10, p <= 8. It is checked BEFORE any key derivation runs;
 //! - "high" profile: m = half of that tier's ceiling, t=3, p=4.
+//!
 //! The parameters are meant to be stored in the container header and re-validated on every read.
 
 use crate::CryptoError;
