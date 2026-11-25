@@ -1,0 +1,54 @@
+name: fuzz
+on:
+  push:
+    paths:
+      - "fuzz/**"
+      - "crates/**"
+      - ".github/workflows/fuzz.yml"
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - "crates/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - fuzz_allowlist_json
+          - fuzz_package_name
+          - fuzz_update_envelope
+          - fuzz_update_channel_key
+          - fuzz_vault_open
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          workspaces: fuzz
+      - name: install cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version 0.13.2
+      - name: fuzz ${{ matrix.target }} (short, time-boxed run, not a coverage claim)
+        working-directory: fuzz
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=${{ github.event_name == 'schedule' && '900' || '60' }} -rss_limit_mb=2048
+      - name: upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/

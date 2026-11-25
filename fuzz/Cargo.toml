@@ -13,6 +13,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 pos-gate = { path = "../crates/pos-gate" }
+pos-update = { path = "../crates/pos-update" }
+pos-vault-store = { path = "../crates/pos-vault-store" }
 
 [[bin]]
 name = "fuzz_allowlist_json"
@@ -22,4 +24,19 @@ doc = false
 [[bin]]
 name = "fuzz_package_name"
 path = "fuzz_targets/fuzz_package_name.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_update_envelope"
+path = "fuzz_targets/fuzz_update_envelope.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_update_channel_key"
+path = "fuzz_targets/fuzz_update_channel_key.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_vault_open"
+path = "fuzz_targets/fuzz_vault_open.rs"
 doc = false
