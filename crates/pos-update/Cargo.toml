@@ -2,10 +2,19 @@
 name = "pos-update"
 version = "0.1.0"
 edition = "2021"
-description = "Signed update-manifest verification: threshold Ed25519, rollback state, time validity (pure functions, no I/O)"
+rust-version = "1.89"
+description = "Signed update-manifest verification: threshold Ed25519, rollback state, time validity (pure verification core plus a trait-based update flow; file state behind an optional feature)"
 license = "MIT"
 
+[features]
+default = []
+# Optional file-backed StateStore (per-channel advisory lock + atomic state file). Pulls in pos-vault-store.
+file-state = ["dep:pos-vault-store"]
+# Test-only failure injection for file-state. Not for production.
+fault-injection = ["file-state", "pos-vault-store/fault-injection"]
+
 [dependencies]
+pos-vault-store = { path = "../pos-vault-store", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ed25519-dalek = "2"
@@ -15,3 +24,11 @@ sha2 = "0.10"
 [dev-dependencies]
 tempfile = "3"
 proptest = "1"
+
+[[test]]
+name = "file_state_tests"
+required-features = ["file-state"]
+
+[[test]]
+name = "file_state_fault_tests"
+required-features = ["fault-injection"]

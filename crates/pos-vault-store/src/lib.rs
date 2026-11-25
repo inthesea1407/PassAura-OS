@@ -490,7 +490,66 @@ pub fn write_file_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), Err
     Err(last)
 }
 
+/// Test-only failure injection for the atomic writer (cargo feature `fault-injection`, off by default and
+/// compiled out otherwise). The hook runs after each step; `Fail` aborts with the normal cleanup path
+/// (temp file removed), `Crash` stops at once WITHOUT cleanup, leaving the disk as the process would leave it
+/// if it died at that point. This simulates crash points, it is not a power-loss test.
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteStep {
+    AfterTmpCreate,
+    AfterWrite,
+    AfterSync,
+    BeforeRename,
+    AfterRename,
+    AfterDirSync,
+}
+
+#[cfg(feature = "fault-injection")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookAction {
+    Continue,
+    Fail(std::io::ErrorKind),
+    Crash,
+}
+
+#[cfg(feature = "fault-injection")]
+type Hook<'a> = &'a mut dyn FnMut(WriteStep) -> HookAction;
+
+/// Like `write_file_atomic`, with a fault hook. Only with the `fault-injection` feature.
+#[cfg(feature = "fault-injection")]
+pub fn write_file_atomic_with_hook(path: &std::path::Path, bytes: &[u8], hook: Hook<'_>) -> Result<(), Error> {
+    let suffix = rand_array::<8>(&mut OsRandom)?.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    write_atomic_inner(path, bytes, &suffix, hook)
+}
+
+#[cfg(feature = "fault-injection")]
 fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) -> Result<(), Error> {
+    write_atomic_inner(path, bytes, suffix, &mut |_| HookAction::Continue)
+}
+
+#[cfg(not(feature = "fault-injection"))]
+fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) -> Result<(), Error> {
+    write_atomic_inner(path, bytes, suffix)
+}
+
+/// Maps a hook decision to a result. `Crash` is `Interrupted` and is never cleaned up; do not use
+/// `Fail(Interrupted)` in tests.
+#[cfg(feature = "fault-injection")]
+fn act(a: HookAction) -> Result<(), Error> {
+    match a {
+        HookAction::Continue => Ok(()),
+        HookAction::Fail(k) => Err(Error::Io(k)),
+        HookAction::Crash => Err(Error::Io(std::io::ErrorKind::Interrupted)),
+    }
+}
+
+fn write_atomic_inner(
+    path: &std::path::Path,
+    bytes: &[u8],
+    suffix: &str,
+    #[cfg(feature = "fault-injection")] hook: Hook<'_>,
+) -> Result<(), Error> {
     use std::io::Write;
     let io = |e: std::io::Error| Error::Io(e.kind());
     let dir = match path.parent() {
@@ -510,21 +569,47 @@ fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) 
     }
     // create_new fails if the name exists (including as a symlink), so nothing is truncated or followed.
     let mut f = oo.open(&tmp).map_err(io)?;
+    #[cfg(feature = "fault-injection")]
+    if let Err(e) = act((hook)(WriteStep::AfterTmpCreate)) {
+        if e != Error::Io(std::io::ErrorKind::Interrupted) {
+            drop(f);
+            let _ = std::fs::remove_file(&tmp);
+        }
+        return Err(e);
+    }
     let res = (|| {
         f.write_all(bytes).map_err(io)?;
+        #[cfg(feature = "fault-injection")]
+        act((hook)(WriteStep::AfterWrite))?;
         f.sync_all().map_err(io)?;
+        #[cfg(feature = "fault-injection")]
+        act((hook)(WriteStep::AfterSync))?;
         Ok(())
     })();
     // Close the handle before rename: Windows cannot rename a file that is still open.
     drop(f);
+    #[cfg(feature = "fault-injection")]
+    if res == Err(Error::Io(std::io::ErrorKind::Interrupted)) {
+        return res; // simulated crash: leave the temp file in place
+    }
     let res = res.and_then(|()| {
+        #[cfg(feature = "fault-injection")]
+        act((hook)(WriteStep::BeforeRename))?;
         std::fs::rename(&tmp, path).map_err(io)?;
+        #[cfg(feature = "fault-injection")]
+        act((hook)(WriteStep::AfterRename))?;
         #[cfg(unix)]
         {
             std::fs::File::open(&dir).map_err(io)?.sync_all().map_err(io)?;
         }
+        #[cfg(feature = "fault-injection")]
+        act((hook)(WriteStep::AfterDirSync))?;
         Ok(())
     });
+    #[cfg(feature = "fault-injection")]
+    if res == Err(Error::Io(std::io::ErrorKind::Interrupted)) {
+        return res; // simulated crash at or after rename: no cleanup
+    }
     if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }

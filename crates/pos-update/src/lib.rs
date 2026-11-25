@@ -1,9 +1,13 @@
 //! Signed update-manifest verification. TUF-inspired, NOT TUF. See
 //! `docs/UPDATE_CHANNEL.md`. No security guarantee is claimed.
 //!
-//! Pure functions only: no file, network, clock or key-holding code. The caller
-//! supplies the bytes, the trusted key set, the threshold, `now` and the
-//! previously accepted state, and persists the returned state itself.
+//! The verification functions at the crate root are pure: no file, network, clock or key-holding code. The
+//! caller supplies the bytes, the trusted key set, the threshold, `now` and the previously accepted state.
+//!
+//! [`flow`] adds the fetch, verify, stage, hand-off and persist sequence behind traits (`Transport`,
+//! `StateStore`, `Handoff`); it stages files but has no network, clock or install code. The optional,
+//! default-off `file-state` feature adds `file_state`, a locked, atomically written state file built on
+//! `pos-vault-store`. The default build does not depend on `pos-vault-store`.
 //!
 //! Units: every time value is an unsigned count of whole seconds since the Unix
 //! epoch (`u64`). `skew_secs` and `max_validity` are also whole seconds.
@@ -17,6 +21,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+
+pub mod flow;
+#[cfg(feature = "file-state")]
+pub mod file_state;
 
 /// Domain-separation prefix (ends with LF) placed before the canonical manifest JSON.
 pub const SIGN_PREFIX: &[u8] = b"pos-update-manifest-v1\n";

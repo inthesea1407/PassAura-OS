@@ -6,6 +6,10 @@ rust-version = "1.89"
 description = "Encrypted single-file store: XChaCha20-Poly1305 or L1 payload, Argon2id-wrapped data key, rewrap-only"
 license = "MIT"
 
+[features]
+# Test-only failure injection for the atomic writer. Off by default, not for production.
+fault-injection = []
+
 [dependencies]
 pos-crypto-suites = { path = "../pos-crypto-suites" }
 chacha20poly1305 = "0.10"
