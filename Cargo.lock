@@ -1126,6 +1126,18 @@ name = "pos-platform"
 version = "0.1.0"
 
 [[package]]
+name = "pos-update"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pos-vault-store"
 version = "0.1.0"
 dependencies = [
