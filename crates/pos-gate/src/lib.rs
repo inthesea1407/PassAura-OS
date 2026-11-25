@@ -6,6 +6,7 @@
 
 pub mod allowlist;
 pub mod allowlist_v2;
+pub mod deb_identity;
 pub mod linux_backend;
 pub mod migrate;
 pub mod names;

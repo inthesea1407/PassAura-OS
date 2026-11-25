@@ -6,6 +6,18 @@ use pos_gate::linux_backend::{
 };
 use std::path::Path;
 
+/// A real (minimal) .deb whose control data matches the allowlist entry, in a temp dir.
+fn staged_deb(entry_version: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+    let d = tempfile::tempdir().unwrap();
+    let p = d.path().join("a.deb");
+    std::fs::write(
+        &p,
+        pos_gate::deb_identity::build_minimal_deb(PKG, entry_version),
+    )
+    .unwrap();
+    (d, p)
+}
+
 #[derive(Default)]
 struct Rec {
     calls: Vec<(String, Vec<String>)>,
@@ -26,16 +38,9 @@ fn dpkg_exact_file_command_is_fixed_and_absolute() {
     let doc = good_doc(1);
     let t = trusted();
     let mut b = AptDpkgBackend::new(Rec::default());
+    let (_d, deb) = staged_deb("14.1.0");
     let r = b
-        .install_staged_file(
-            PKG,
-            Path::new("/stage/a.deb"),
-            &doc,
-            &t,
-            NOW,
-            None,
-            InstallMode::Apply,
-        )
+        .install_staged_file(PKG, &deb, &doc, &t, NOW, None, InstallMode::Apply)
         .unwrap();
     assert!(r.executed);
     assert_eq!(
@@ -45,7 +50,7 @@ fn dpkg_exact_file_command_is_fixed_and_absolute() {
             vec![
                 "-i".to_string(),
                 "--".to_string(),
-                "/stage/a.deb".to_string()
+                deb.to_str().unwrap().to_string()
             ]
         )]
     );
@@ -117,16 +122,9 @@ fn dry_run_builds_but_does_not_run_and_flatpak_is_unsupported() {
     let doc = good_doc(1);
     let t = trusted();
     let mut b = AptDpkgBackend::new(Rec::default());
+    let (_d, deb) = staged_deb("14.1.0");
     let r = b
-        .install_staged_file(
-            PKG,
-            Path::new("/s/a.deb"),
-            &doc,
-            &t,
-            NOW,
-            None,
-            InstallMode::DryRun,
-        )
+        .install_staged_file(PKG, &deb, &doc, &t, NOW, None, InstallMode::DryRun)
         .unwrap();
     assert!(!r.executed);
     assert!(b.runner().calls.is_empty());

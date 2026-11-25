@@ -934,7 +934,9 @@ mod tests {
         use sha2::{Digest, Sha256};
         use std::sync::{Arc, Mutex};
 
-        const CONTENT: &[u8] = b"pretend this is a .deb";
+        fn content() -> Vec<u8> {
+            pos_gate::deb_identity::build_minimal_deb("ripgrep", "14")
+        }
 
         type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
         type Script = Arc<Mutex<Vec<Result<CommandOutput, String>>>>;
@@ -988,7 +990,7 @@ mod tests {
                     std::env::temp_dir().join(format!("pos-cli-flow-{}-{tag}", std::process::id()));
                 let _ = std::fs::remove_dir_all(&dir);
                 std::fs::create_dir_all(&dir).unwrap();
-                std::fs::write(dir.join("p.deb"), CONTENT).unwrap();
+                std::fs::write(dir.join("p.deb"), content()).unwrap();
                 let sk = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
                 let pk = hex::encode(sk.verifying_key().to_bytes());
                 let kid = pos_gate::allowlist_v2::derive_key_id(&pk);
@@ -1012,7 +1014,7 @@ mod tests {
                     entries: vec![pos_gate::allowlist_v2::V2Entry {
                         name: "ripgrep".into(),
                         version: Some("14".into()),
-                        sha256: hex::encode(Sha256::digest(CONTENT)),
+                        sha256: hex::encode(Sha256::digest(content())),
                     }],
                     signature_hex: String::new(),
                 };

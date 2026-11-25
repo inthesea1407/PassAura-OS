@@ -40,3 +40,8 @@ doc = false
 name = "fuzz_vault_open"
 path = "fuzz_targets/fuzz_vault_open.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_deb_identity"
+path = "fuzz_targets/fuzz_deb_identity.rs"
+doc = false

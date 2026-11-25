@@ -31,6 +31,9 @@ pub enum PackageBackendError {
     ExactFileUnsupported,
     /// The staged file path is not an absolute, plain path.
     InvalidStagedPath,
+    /// The staged `.deb` does not carry the allowlisted package identity (name, and version when the
+    /// entry names one), or its control data could not be read.
+    StagedIdentity(crate::deb_identity::DebError),
 }
 
 impl fmt::Display for PackageBackendError {
@@ -47,6 +50,7 @@ impl fmt::Display for PackageBackendError {
                 f.write_str("this backend cannot install an exact staged file")
             }
             Self::InvalidStagedPath => f.write_str("invalid staged file path"),
+            Self::StagedIdentity(e) => write!(f, "staged file identity check failed: {e}"),
             Self::RunnerNotStarted { program, message } => {
                 write!(f, "command was not started: {program}: {message}")
             }
@@ -146,6 +150,34 @@ impl<'a> VerifiedAllowlist<'a> {
 
     fn contains(&self, package: &str) -> bool {
         self.doc.entries.iter().any(|entry| entry.name == package)
+    }
+
+    /// Some entry of that name must match the staged deb's name and version (an entry without a version
+    /// accepts any version of that name). Returns the first mismatch when none does.
+    fn check_staged_identity(
+        &self,
+        package: &str,
+        staged: &std::path::Path,
+    ) -> Result<(), PackageBackendError> {
+        let mut file = std::fs::File::open(staged)
+            .map_err(|e| PackageBackendError::StagedIdentity(e.into()))?;
+        let id = crate::deb_identity::read_identity(&mut file)
+            .map_err(PackageBackendError::StagedIdentity)?;
+        let mut first_err = None;
+        for entry in self.doc.entries.iter().filter(|e| e.name == package) {
+            match crate::deb_identity::check_identity(&id, &entry.name, entry.version.as_deref()) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                }
+            }
+        }
+        Err(PackageBackendError::StagedIdentity(first_err.unwrap_or(
+            crate::deb_identity::DebError::NameMismatch {
+                expected: package.to_string(),
+                found: id.package,
+            },
+        )))
     }
 }
 
@@ -344,6 +376,9 @@ impl<R: CommandRunner> PackageBackend for AptDpkgBackend<R> {
         if !staged.is_absolute() || path.contains('\0') {
             return Err(PackageBackendError::InvalidStagedPath);
         }
+        // Identity binding (added after the hash check, before dpkg can run): the file's own control data
+        // must name the allowlisted package, and the entry's version when it has one.
+        verified.check_staged_identity(package, staged)?;
         let command = PlannedCommand {
             program: "dpkg".into(),
             args: vec!["-i".into(), "--".into(), path.into()],

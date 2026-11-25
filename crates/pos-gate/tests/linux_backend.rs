@@ -609,26 +609,118 @@ mod exact_file_fate {
     use super::*;
     use pos_gate::linux_backend::{CommandOutput, CommandRunner, RUNNER_NOT_STARTED_PREFIX};
 
-    struct R(Result<CommandOutput, String>);
+    struct R(Result<CommandOutput, String>, usize);
     impl CommandRunner for R {
         fn run(&mut self, _p: &str, _a: &[String]) -> Result<CommandOutput, String> {
+            self.1 += 1;
             self.0.clone()
         }
     }
 
-    fn go(r: Result<CommandOutput, String>) -> Result<(), PackageBackendError> {
+    /// Minimal .deb: ar archive with an uncompressed control.tar holding `control`.
+    pub fn write_deb(dir: &std::path::Path, control: &str) -> std::path::PathBuf {
+        let mut h = [0u8; 512];
+        h[..9].copy_from_slice(b"./control");
+        h[100..108].copy_from_slice(b"0000644\0");
+        h[124..136].copy_from_slice(format!("{:011o}\0", control.len()).as_bytes());
+        h[156] = b'0';
+        let mut tar = h.to_vec();
+        tar.extend_from_slice(control.as_bytes());
+        tar.resize(tar.len().div_ceil(512) * 512 + 1024, 0);
+        let member = |name: &str, data: &[u8]| {
+            let mut v = format!(
+                "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                format!("{name}/"),
+                0,
+                0,
+                0,
+                "100644",
+                data.len()
+            )
+            .into_bytes();
+            v.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                v.push(b'\n');
+            }
+            v
+        };
+        let mut deb = b"!<arch>\n".to_vec();
+        deb.extend(member("debian-binary", b"2.0\n"));
+        deb.extend(member("control.tar", &tar));
+        deb.extend(member("data.tar.xz", b"data"));
+        let p = dir.join("x.deb");
+        std::fs::write(&p, deb).unwrap();
+        p
+    }
+
+    fn go_with(
+        r: Result<CommandOutput, String>,
+        control: &str,
+    ) -> (Result<(), PackageBackendError>, usize) {
         let fixture = fixture();
-        let mut b = AptDpkgBackend::new(R(r));
-        b.install_staged_file(
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_deb(dir.path(), control);
+        let mut b = AptDpkgBackend::new(R(r, 0));
+        let res = b
+            .install_staged_file(
+                "curl",
+                &path,
+                &fixture.doc,
+                &fixture.keys,
+                200,
+                None,
+                InstallMode::Apply,
+            )
+            .map(|_| ());
+        (res, b.runner().1)
+    }
+
+    fn go(r: Result<CommandOutput, String>) -> Result<(), PackageBackendError> {
+        go_with(r, "Package: curl\nVersion: 8\nArchitecture: amd64\n").0
+    }
+
+    #[test]
+    fn identity_mismatch_stops_before_dpkg_runs() {
+        let ok = Ok(CommandOutput {
+            success: true,
+            code: Some(0),
+            message: String::new(),
+        });
+        let (res, calls) = go_with(ok.clone(), "Package: wget\nVersion: 8\n");
+        assert!(
+            matches!(res, Err(PackageBackendError::StagedIdentity(_))),
+            "{res:?}"
+        );
+        assert_eq!(calls, 0);
+        let (res, calls) = go_with(ok.clone(), "Package: curl\nVersion: 9\n");
+        assert!(
+            matches!(res, Err(PackageBackendError::StagedIdentity(_))),
+            "{res:?}"
+        );
+        assert_eq!(calls, 0);
+        let (res, calls) = go_with(ok, "Package: curl\nVersion: 8\n");
+        assert!(res.is_ok(), "{res:?}");
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn missing_or_garbage_staged_file_stops_before_dpkg_runs() {
+        let fixture = fixture();
+        let mut b = AptDpkgBackend::new(R(Err("never".into()), 0));
+        let res = b.install_staged_file(
             "curl",
-            std::path::Path::new("/tmp/x.deb"),
+            std::path::Path::new("/tmp/does-not-exist-pos.deb"),
             &fixture.doc,
             &fixture.keys,
             200,
             None,
             InstallMode::Apply,
-        )
-        .map(|_| ())
+        );
+        assert!(
+            matches!(res, Err(PackageBackendError::StagedIdentity(_))),
+            "{res:?}"
+        );
+        assert_eq!(b.runner().1, 0);
     }
 
     #[test]
