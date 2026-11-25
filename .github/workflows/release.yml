@@ -111,4 +111,5 @@ jobs:
             release-files/pos-cli-windows-x86_64.exe \
             release-files/SHA256SUMS \
             --title "PassAura OS $TAG" \
+            --notes "UNSIGNED BUILD. SHA256SUMS is a checksum list only. No release signing key exists yet and no SHA256SUMS.minisig is published, so scripts/verify-release.sh will refuse this release. Checksums only detect corruption, not a malicious upload. Built by CI, not audited." \
             --generate-notes

@@ -17,7 +17,9 @@ Honest status: a tested policy core, a package gate, a signed-package format, a 
 | Android | device-owner app compiles in CI, credential-manager policy (API 34+) | run on an emulator in CI, QR provisioning, hardened-AOSP path |
 | Backend | migrations 0001-0009 + pgTAP pass on plain Postgres in CI; Edge Functions drafted | apply to Supabase (owner), deploy functions (owner), concurrency tests under Docker |
 | Owner panel | static app drafted | test against a live project (owner), pin supabase-js SRI |
-| Store / updates | signed packages (Ed25519) | update channel and store review model |
+| Store / updates | signed packages (Ed25519); `pos-update` manifest verifier (threshold Ed25519, per-channel rollback state, expiry; pure functions, no I/O) | update client that fetches and stages, key ceremony (owner), store review model |
+| Install / network | `pos-install` crash-safe install transaction (real dpkg runner never run); `pos-netpolicy` per-UID nftables generator (nft syntax unverified) | run both in the QEMU image, verify nft rules on a real kernel |
+| Crypto / storage | `pos-crypto-suites` (V1, L1 layered, tiered Argon2id, X25519+ML-KEM-768 wrap) and `pos-vault-store` (encrypted single file, rewrap with payload verify, atomic write). Not audited; ml-kem is not independently audited | wire into the apps, rollback counter, data-key rotation, Windows tests |
 
 ## Milestones
 - M1 (done): policy engine, package gate, signed packages, CI.
@@ -26,6 +28,9 @@ Honest status: a tested policy core, a package gate, a signed-package format, a 
 - M4: single enforced policy across Android, Windows and Linux; installer for each; invite registration end to end against a live backend.
 - M5: store, updates, Premium entitlement; public beta with invite codes.
 - M6: external review (when budget allows); only then claim a security level.
+
+## Status as of 2026-11-25
+Merged and CI-green: pos-crypto-suites, pos-vault-store, pos-update, pos-install, pos-netpolicy. All of it is tested in CI only: nothing has run on real hardware, nothing is audited, releases are unsigned (no release key yet), and payments stay off behind an unset flag.
 
 ## Known limits
 - Open source, so forks can remove the block; only official signed builds enforce.

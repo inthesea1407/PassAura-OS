@@ -1,4 +1,7 @@
 
+
+> **Status and format (read first).** The verifier (`scripts/verify-release.sh`) and `docs/RELEASE_TRUST.md` use **minisign** (`SHA256SUMS.minisig`). The OpenSSL / `SHA256SUMS.sig` instructions further down are an older plan and are NOT what the verifier accepts. Until a real minisign key pair exists and the offline signing step is done, CI releases are **unsigned** (checksums only) and the verifier will refuse them. CI does not sign anything and never holds a signing key.
+
 # PassAura OS — Reproducible Builds & Release Signing
 
 This document describes how to produce, hash, sign, publish, and
