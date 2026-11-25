@@ -50,7 +50,7 @@ try {
         throw "Missing required fields."
     }
  
-    $issuedAt = :Parse($allowlist.issued_at)
+    $issuedAt = [DateTimeOffset]::Parse($allowlist.issued_at)
     $maxAge = (Get-Date).ToUniversalTime().AddDays(-30)
  
     if ($issuedAt.UtcDateTime -lt $maxAge) {
