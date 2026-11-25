@@ -2,7 +2,7 @@
 name = "pos-crypto-suites"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "Pure-function cipher suites for POS: layered AEAD, Argon2id tiers, hybrid X25519+ML-KEM-768 key wrap"
 license = "MIT"
 

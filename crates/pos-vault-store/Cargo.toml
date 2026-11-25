@@ -2,7 +2,7 @@
 name = "pos-vault-store"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "Encrypted single-file store: XChaCha20-Poly1305 or L1 payload, Argon2id-wrapped data key, rewrap-only"
 license = "MIT"
 
