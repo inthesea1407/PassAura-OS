@@ -54,7 +54,7 @@ pub fn observe(f: &PackageFacts) -> Vec<Capability> {
     }
     for d in &f.desktop_entries {
         let l = d.to_lowercase();
-        let relevant = l.lines().filter(|x| {
+        let relevant = l.lines().map(str::trim_start).filter(|x| {
             x.starts_with("keywords") || x.starts_with("comment") || x.starts_with("genericname") || x.starts_with("categories")
         });
         if relevant.clone().any(|x| PM_WORDS.iter().any(|w| x.contains(w))) {
@@ -91,6 +91,12 @@ mod tests {
     #[test]
     fn renamed_manager_caught_by_desktop_entry() {
         let d = "[Desktop Entry]\nName=Notes+\nKeywords=vault;Password Manager;\n";
+        assert!(matches!(verdict(&facts("notes-plus", &[], &[d]), true), Verdict::Block(_)));
+    }
+
+    #[test]
+    fn indented_desktop_keywords_still_caught() {
+        let d = "[Desktop Entry]\nName=Notes+\n   Keywords[de]=Passwort;Password Manager;\n";
         assert!(matches!(verdict(&facts("notes-plus", &[], &[d]), true), Verdict::Block(_)));
     }
 
