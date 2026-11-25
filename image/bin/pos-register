@@ -9,6 +9,7 @@ INVITE_FILE="${PASSAURA_INVITE_FILE:-/etc/passaura/invite.code}"
 STATE_DIR="${PASSAURA_STATE_DIR:-/var/lib/passaura}"
 RECORD_FILE="${STATE_DIR}/registration.json"
 
+umask 077
 mkdir -p "${STATE_DIR}"
 chmod 0700 "${STATE_DIR}"
 
@@ -34,7 +35,9 @@ fi
 TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 HOSTNAME_VAL="$(hostname 2>/dev/null || echo unknown)"
 
-cat > "${RECORD_FILE}" <<EOF
+TMP_RECORD="$(mktemp "${STATE_DIR}/.registration.XXXXXX")"
+trap 'rm -f "${TMP_RECORD}"' EXIT
+cat > "${TMP_RECORD}" <<EOF
 {
   "status": "registered_stub",
   "mode": "local-file-only",
@@ -43,7 +46,8 @@ cat > "${RECORD_FILE}" <<EOF
   "registered_at": "${TIMESTAMP}"
 }
 EOF
-chmod 0600 "${RECORD_FILE}"
+chmod 0600 "${TMP_RECORD}"
+mv -f "${TMP_RECORD}" "${RECORD_FILE}"
 
 # Consume/clear plaintext invite file after local recording
 : > "${INVITE_FILE}"

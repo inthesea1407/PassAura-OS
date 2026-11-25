@@ -17,5 +17,7 @@ jobs:
         run: bats tests/verify-release.bats
       - name: apt-hook tests (mock dpkg-deb and pos-gate)
         run: bats tests/apt-hook.bats
+      - name: pos-register tests
+        run: bats tests/pos-register.bats
       - name: first-boot tests
         run: sh image/linux/firstboot/test.sh

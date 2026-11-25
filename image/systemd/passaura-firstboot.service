@@ -6,6 +6,21 @@ ConditionPathExists=!/var/lib/passaura/registration.json
 [Service]
 Type=oneshot
 ExecStart=/usr/local/bin/pos-register
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+StateDirectory=passaura
+StateDirectoryMode=0700
+ReadWritePaths=-/etc/passaura
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+UMask=0077
 StandardOutput=journal
 StandardError=journal
 
