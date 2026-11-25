@@ -1,0 +1,8 @@
+[package]
+name = "pos-netpolicy"
+version = "0.1.0"
+edition = "2021"
+description = "Text generator for a per-UID nftables OUTPUT allow-list (no apply, no host effects)"
+license = "MIT"
+
+[dependencies]

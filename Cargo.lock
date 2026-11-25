@@ -774,6 +774,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pos-netpolicy"
+version = "0.1.0"
+
+[[package]]
 name = "pos-pkg"
 version = "0.1.0"
 dependencies = [
