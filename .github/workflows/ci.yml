@@ -17,6 +17,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
       - run: cargo clippy --workspace --all-targets
+  vault-every-byte:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: every-byte tamper test through the public open(), real Argon2, release mode
+        run: cargo test --release --locked -p pos-vault-store -- --ignored
   security-scans:
     runs-on: ubuntu-latest
     timeout-minutes: 30

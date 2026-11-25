@@ -44,7 +44,7 @@ pub const ENVELOPE_LEN: usize = 1 + 12 + SALT_LEN + NONCE_LEN + DEK_LEN + TAG_LE
 const ENVELOPE_AUTH_PREFIX: usize = ENVELOPE_LEN - (DEK_LEN + TAG_LEN);
 /// Shortest possible file (aead id 1, empty plaintext). L1 files are longer.
 pub const MIN_FILE_LEN: usize = HEADER_LEN + ENVELOPE_LEN + NONCE_LEN + TAG_LEN;
-/// Payload size cap (plaintext). Accepted by the peer reviewer.
+/// Payload size cap (plaintext). Accepted after an engineering review, not an audit.
 pub const MAX_PLAINTEXT_LEN: usize = 64 * 1024 * 1024;
 /// Extra bytes an L1 payload can add over the plaintext (suite byte, two nonces, two tags), rounded up.
 const L1_OVERHEAD: usize = 1 + 12 + 24 + 16 + 16;
@@ -122,6 +122,11 @@ impl WriteLimits {
 /// Floor and cap check with distinct errors. Memory ceiling is one eighth of the tier's RAM.
 /// Runs before any key derivation, on write and on read.
 pub fn check_params(p: &ArgonParams, tier: Tier) -> Result<(), Error> {
+    // The accept/reject decision belongs to pos-crypto-suites so the two policies cannot drift.
+    // The branches below only choose a distinct error for the caller.
+    if p.check(tier).is_ok() {
+        return Ok(());
+    }
     if p.m_kib < FLOOR_M_KIB {
         return Err(Error::ParamBelowFloor(Param::Memory));
     }
@@ -140,7 +145,8 @@ pub fn check_params(p: &ArgonParams, tier: Tier) -> Result<(), Error> {
     if p.p > CAP_P {
         return Err(Error::ParamAboveCap(Param::Parallelism));
     }
-    Ok(())
+    // The suites policy refused something this crate cannot classify: fail closed.
+    Err(Error::Kdf)
 }
 
 /// Source of random bytes. Production code uses `OsRandom`; tests may inject a fixed source.
@@ -450,14 +456,18 @@ fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) 
     let res = (|| {
         f.write_all(bytes).map_err(io)?;
         f.sync_all().map_err(io)?;
+        Ok(())
+    })();
+    // Close the handle before rename: Windows cannot rename a file that is still open.
+    drop(f);
+    let res = res.and_then(|()| {
         std::fs::rename(&tmp, path).map_err(io)?;
         #[cfg(unix)]
         {
             std::fs::File::open(&dir).map_err(io)?.sync_all().map_err(io)?;
         }
         Ok(())
-    })();
-    drop(f);
+    });
     if res.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
