@@ -171,8 +171,12 @@ fn header_field_errors_are_distinct() {
     g[0] = b'X';
     assert_eq!(op(PW, &g).unwrap_err(), Error::BadMagic);
     let mut g = f.clone();
-    g[5] = 2;
-    assert_eq!(op(PW, &g).unwrap_err(), Error::UnsupportedVersion(2));
+    g[5] = 3;
+    assert_eq!(op(PW, &g).unwrap_err(), Error::UnsupportedVersion(3));
+    // The previous format (v1, no envelope version) is refused, not guessed at.
+    let mut g = f.clone();
+    g[5] = 1;
+    assert_eq!(op(PW, &g).unwrap_err(), Error::UnsupportedVersion(1));
     let mut g = f.clone();
     g[HEADER_LEN] = 7;
     assert_eq!(op(PW, &g).unwrap_err(), Error::UnsupportedKdf(7));
@@ -358,4 +362,113 @@ fn failed_write_keeps_old_file_and_leaves_no_temp() {
 #[test]
 fn read_file_rejects_missing() {
     assert_eq!(read_file(std::path::Path::new("/nonexistent/zzz")).unwrap_err(), Error::Io(std::io::ErrorKind::NotFound));
+}
+
+// ---- monotonic envelope version (rollback detection) ----
+
+const VOFF: usize = HEADER_LEN + 1 + 12 + SALT_LEN + NONCE_LEN;
+
+fn omv(f: &[u8], suite: Suite, min: u64) -> Result<(zeroize::Zeroizing<Vec<u8>>, u64), Error> {
+    open_min_version(PW, f, suite, T, min)
+}
+
+fn rw(f: &[u8], suite: Suite, pw_old: &[u8], pw_new: &[u8], seed: u8) -> Vec<u8> {
+    rewrap(pw_old, pw_new, f, suite, &F, &lim(), &mut Fixed(seed)).unwrap()
+}
+
+#[test]
+fn seal_starts_at_version_one_and_stores_it_in_the_envelope() {
+    for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
+        assert_eq!(&f[VOFF..VOFF + 8], &1u64.to_be_bytes());
+        let (plain, v) = omv(&f, suite, 0).unwrap();
+        assert_eq!(&*plain, b"hello vault");
+        assert_eq!(v, 1);
+        assert_eq!(v, INITIAL_VERSION);
+    }
+}
+
+#[test]
+fn open_min_version_accepts_equal_and_higher_and_rejects_older() {
+    for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
+        assert!(omv(&f, suite, 1).is_ok());
+        assert_eq!(omv(&f, suite, 2).unwrap_err(), Error::RollbackDetected { found: 1, min: 2 });
+        assert_eq!(omv(&f, suite, u64::MAX).unwrap_err(), Error::RollbackDetected { found: 1, min: u64::MAX });
+    }
+}
+
+#[test]
+fn rewrap_increments_version_and_it_persists_across_rewraps() {
+    for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
+        let g = rw(&f, suite, PW, b"p2", 10);
+        let h = rw(&g, suite, b"p2", b"p3", 20);
+        let i = rw(&h, suite, b"p3", PW, 30);
+        for (file, pw, want) in [(&g, &b"p2"[..], 2u64), (&h, b"p3", 3), (&i, PW, 4)] {
+            assert_eq!(&file[VOFF..VOFF + 8], &want.to_be_bytes());
+            let (plain, v) = open_min_version(pw, file, suite, T, want).unwrap();
+            assert_eq!(&*plain, b"hello vault");
+            assert_eq!(v, want);
+        }
+    }
+}
+
+#[test]
+fn old_copy_is_rejected_when_caller_holds_a_higher_minimum() {
+    for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
+        let g = rw(&f, suite, PW, b"new-pass", 10);
+        // The caller saw version 2, then an attacker restores the old file (version 1).
+        assert_eq!(
+            open_min_version(PW, &f, suite, T, 2).unwrap_err(),
+            Error::RollbackDetected { found: 1, min: 2 }
+        );
+        assert!(open_min_version(b"new-pass", &g, suite, T, 2).is_ok());
+        // Plain `open` has no minimum and still opens the old copy (the caller must use open_min_version).
+        assert!(open(PW, &f, suite, T).is_ok());
+    }
+}
+
+#[test]
+fn wrong_passphrase_never_reports_a_version() {
+    let f = sample();
+    assert_eq!(open_min_version(b"nope", &f, V1, T, 99).unwrap_err(), Error::EnvelopeAuth);
+}
+
+#[test]
+fn every_version_byte_is_authenticated_by_the_envelope_tag() {
+    for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
+        for i in VOFF..VOFF + 8 {
+            for bit in 0..8 {
+                let mut g = f.clone();
+                g[i] ^= 1 << bit;
+                assert_eq!(omv(&g, suite, 0).unwrap_err(), Error::EnvelopeAuth, "byte {i} bit {bit}");
+            }
+        }
+        // Raising the version to dodge a minimum, or lowering a rewrapped file, fails the same way.
+        let g = rw(&f, suite, PW, b"x", 10);
+        let mut h = g.clone();
+        h[VOFF..VOFF + 8].copy_from_slice(&1u64.to_be_bytes());
+        assert_eq!(open_min_version(b"x", &h, suite, T, 0).unwrap_err(), Error::EnvelopeAuth);
+    }
+}
+
+#[test]
+fn envelope_with_old_version_cannot_be_spliced_onto_a_newer_file() {
+    // Same header and payload, envelope taken from the older state of the same file.
+    let f = sample();
+    let g = rw(&f, V1, PW, PW, 10);
+    let mut spliced = g[..HEADER_LEN].to_vec();
+    spliced.extend_from_slice(&f[HEADER_LEN..HEADER_LEN + ENVELOPE_LEN]);
+    spliced.extend_from_slice(&g[HEADER_LEN + ENVELOPE_LEN..]);
+    // It authenticates (same DEK, same header), and reports version 1, so a held minimum of 2 rejects it.
+    assert_eq!(
+        open_min_version(PW, &spliced, V1, T, 2).unwrap_err(),
+        Error::RollbackDetected { found: 1, min: 2 }
+    );
+}
+
+#[test]
+fn rewrap_failure_does_not_change_the_input_or_version() {
+    let f = sample();
+    let before = f.clone();
+    assert_eq!(rewrap(b"nope", b"x", &f, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(), Error::EnvelopeAuth);
+    assert_eq!(f, before);
 }

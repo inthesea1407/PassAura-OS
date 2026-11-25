@@ -1,9 +1,9 @@
-//! Encrypted single-file store (format v1).
+//! Encrypted single-file store (format v2).
 //!
 //! ```text
 //! file     = header | envelope | payload
 //! header   = "PAVS" | version u16 BE | aead id u8 | file id [16]           (23 bytes, immutable)
-//! envelope = kdf id u8 | m_kib u32 | t u32 | p u32 | salt [16] | wrap nonce [24] | wrapped DEK [48]   (101 bytes, mutable)
+//! envelope = kdf id u8 | m_kib u32 | t u32 | p u32 | salt [16] | wrap nonce [24] | version u64 BE | wrapped DEK [48]   (109 bytes, mutable)
 //! payload  = aead id 1: nonce [24] | ciphertext | tag [16]      AAD = header
 //!            aead id 2: pos-crypto-suites L1 blob               caller AAD = header
 //! ```
@@ -11,6 +11,13 @@
 //! The wrap AAD is a domain label, the header, and the envelope bytes before the wrapped DEK, so the
 //! envelope tag covers the header (including the AEAD id), the KDF parameters, the salt and the nonce.
 //! `rewrap` replaces only the envelope: payload bytes are copied unchanged.
+//!
+//! Rollback detection: the envelope carries a monotonic `version` (u64). `seal` writes 1 and `rewrap`
+//! writes the old version plus 1 (checked, `VersionOverflow` at u64::MAX). The version sits before the
+//! wrapped DEK, so it is covered by the wrap AAD and is authenticated once the DEK unwraps. The header
+//! stays immutable. `open_min_version` refuses a file whose authenticated version is below the minimum
+//! the CALLER holds (`RollbackDetected`). This crate stores no minimum: an attacker who can restore an
+//! old file is only detected if the caller keeps a trusted minimum somewhere the attacker cannot roll back.
 //!
 //! AEAD id 1 is XChaCha20-Poly1305 and id 2 is the layered L1 suite of `pos-crypto-suites`. The reader
 //! states which suite it expects; any other id is refused before the KDF runs.
@@ -31,7 +38,7 @@ use std::fmt;
 use zeroize::Zeroizing;
 
 pub const MAGIC: [u8; 4] = *b"PAVS";
-pub const FORMAT_VERSION: u16 = 1;
+pub const FORMAT_VERSION: u16 = 2;
 pub const KDF_ARGON2ID_V13: u8 = 1;
 
 pub const FILE_ID_LEN: usize = 16;
@@ -39,8 +46,9 @@ pub const SALT_LEN: usize = 16;
 pub const NONCE_LEN: usize = 24;
 pub const TAG_LEN: usize = 16;
 pub const DEK_LEN: usize = 32;
+pub const VERSION_LEN: usize = 8;
 pub const HEADER_LEN: usize = 4 + 2 + 1 + FILE_ID_LEN;
-pub const ENVELOPE_LEN: usize = 1 + 12 + SALT_LEN + NONCE_LEN + DEK_LEN + TAG_LEN;
+pub const ENVELOPE_LEN: usize = 1 + 12 + SALT_LEN + NONCE_LEN + VERSION_LEN + DEK_LEN + TAG_LEN;
 const ENVELOPE_AUTH_PREFIX: usize = ENVELOPE_LEN - (DEK_LEN + TAG_LEN);
 /// Shortest possible file (aead id 1, empty plaintext). L1 files are longer.
 pub const MIN_FILE_LEN: usize = HEADER_LEN + ENVELOPE_LEN + NONCE_LEN + TAG_LEN;
@@ -49,7 +57,9 @@ pub const MAX_PLAINTEXT_LEN: usize = 64 * 1024 * 1024;
 /// Extra bytes an L1 payload can add over the plaintext (suite byte, two nonces, two tags), rounded up.
 const L1_OVERHEAD: usize = 1 + 12 + 24 + 16 + 16;
 
-const WRAP_DOMAIN: &[u8] = b"pos-vault-store/v1/dek-wrap";
+const WRAP_DOMAIN: &[u8] = b"pos-vault-store/v2/dek-wrap";
+/// Version written by `seal`.
+pub const INITIAL_VERSION: u64 = 1;
 
 /// Argon2id floor, the same for every tier: OWASP Password Storage Cheat Sheet minimum configuration.
 pub const FLOOR_M_KIB: u32 = S_FLOOR_M;
@@ -85,6 +95,10 @@ pub enum Error {
     PayloadAuth,
     EmptyPassphrase,
     PlaintextTooLarge,
+    /// The authenticated envelope version is below the minimum the caller holds.
+    RollbackDetected { found: u64, min: u64 },
+    /// `rewrap` would exceed u64::MAX.
+    VersionOverflow,
     Random,
     Kdf,
     /// AEAD encryption failed (should not happen for valid inputs).
@@ -210,6 +224,7 @@ fn build_envelope(
     params: &ArgonParams,
     header: &[u8],
     dek: &[u8; 32],
+    version: u64,
     rng: &mut dyn Random,
     kdf: KdfFn<'_>,
 ) -> Result<Vec<u8>, Error> {
@@ -221,6 +236,7 @@ fn build_envelope(
     env.extend_from_slice(&params.to_bytes());
     env.extend_from_slice(&salt);
     env.extend_from_slice(&nonce);
+    env.extend_from_slice(&version.to_be_bytes());
     let wrapped = aead_seal(&kek, &nonce, &wrap_aad(header, &env), dek)?;
     env.extend_from_slice(&wrapped);
     debug_assert_eq!(env.len(), ENVELOPE_LEN);
@@ -272,7 +288,7 @@ fn unwrap_dek_with(pass: &[u8], p: &Parsed<'_>, tier: Tier, kdf: KdfFn<'_>) -> R
     let (params, salt) = parse_envelope_params(p.envelope)?;
     check_params(&params, tier)?; // before the KDF
     let kek = kdf(pass, &salt, &params)?;
-    let nonce = &p.envelope[13 + SALT_LEN..ENVELOPE_AUTH_PREFIX];
+    let nonce = &p.envelope[13 + SALT_LEN..13 + SALT_LEN + NONCE_LEN];
     let dek = aead_open(
         &kek,
         nonce,
@@ -283,6 +299,14 @@ fn unwrap_dek_with(pass: &[u8], p: &Parsed<'_>, tier: Tier, kdf: KdfFn<'_>) -> R
     let mut out = Zeroizing::new([0u8; 32]);
     out.copy_from_slice(&dek);
     Ok(out)
+}
+
+/// Version field of an envelope. Only meaningful after the DEK unwrapped, which authenticates it.
+fn envelope_version(env: &[u8]) -> u64 {
+    let o = 13 + SALT_LEN + NONCE_LEN;
+    let mut b = [0u8; VERSION_LEN];
+    b.copy_from_slice(&env[o..o + VERSION_LEN]);
+    u64::from_be_bytes(b)
 }
 
 fn open_payload(suite: Suite, dek: &[u8; 32], p: &Parsed<'_>) -> Result<Zeroizing<Vec<u8>>, Error> {
@@ -332,7 +356,7 @@ fn seal_with(
     header.extend_from_slice(&file_id);
     let mut dek = Zeroizing::new([0u8; DEK_LEN]);
     rng.fill(&mut *dek)?;
-    let envelope = build_envelope(pass, params, &header, &dek, rng, kdf)?;
+    let envelope = build_envelope(pass, params, &header, &dek, INITIAL_VERSION, rng, kdf)?;
     let payload = match suite {
         Suite::V1 => {
             let pnonce = rand_array::<NONCE_LEN>(rng)?;
@@ -358,15 +382,46 @@ pub fn open(pass: &[u8], file: &[u8], expected: Suite, reader: Tier) -> Result<Z
 }
 
 fn open_with(pass: &[u8], file: &[u8], expected: Suite, reader: Tier, kdf: KdfFn<'_>) -> Result<Zeroizing<Vec<u8>>, Error> {
+    open_min_version_with(pass, file, expected, reader, 0, kdf).map(|(plain, _)| plain)
+}
+
+/// Like `open`, but also refuses a file whose authenticated envelope version is below `min_version`
+/// (`RollbackDetected`, checked after the DEK unwraps and before the payload is decrypted). Returns the
+/// plaintext and the file's version so the caller can raise its stored minimum. `min_version` is held by
+/// the caller; this crate stores nothing.
+pub fn open_min_version(
+    pass: &[u8],
+    file: &[u8],
+    expected: Suite,
+    reader: Tier,
+    min_version: u64,
+) -> Result<(Zeroizing<Vec<u8>>, u64), Error> {
+    open_min_version_with(pass, file, expected, reader, min_version, &derive_kek(reader))
+}
+
+fn open_min_version_with(
+    pass: &[u8],
+    file: &[u8],
+    expected: Suite,
+    reader: Tier,
+    min_version: u64,
+    kdf: KdfFn<'_>,
+) -> Result<(Zeroizing<Vec<u8>>, u64), Error> {
     let p = parse_header(file, expected)?;
     let dek = unwrap_dek_with(pass, &p, reader, kdf)?;
-    open_payload(expected, &dek, &p)
+    let found = envelope_version(p.envelope);
+    if found < min_version {
+        return Err(Error::RollbackDetected { found, min: min_version });
+    }
+    let plain = open_payload(expected, &dek, &p)?;
+    Ok((plain, found))
 }
 
 /// Replaces the envelope (new passphrase, new salt, new nonce, chosen params). The header and the
 /// payload bytes are copied unchanged. The payload IS authenticated first (decrypted with the DEK,
 /// the plaintext is a `Zeroizing` buffer dropped at once); failure returns `PayloadAuth` and nothing is written.
 /// The old envelope is read on the writer tier; `new_params` must fit the writer and target tiers.
+/// The envelope version increases by one (`VersionOverflow` at u64::MAX).
 /// The DEK stays the same: an old copy of the file and an old passphrase remain valid against that old copy.
 pub fn rewrap(
     old_pass: &[u8],
@@ -398,7 +453,8 @@ fn rewrap_with(
     {
         let _plain = open_payload(expected, &dek, &p)?;
     }
-    let env = build_envelope(new_pass, new_params, p.header, &dek, rng, kdf)?;
+    let next = envelope_version(p.envelope).checked_add(1).ok_or(Error::VersionOverflow)?;
+    let env = build_envelope(new_pass, new_params, p.header, &dek, next, rng, kdf)?;
     let mut out = Vec::with_capacity(file.len());
     out.extend_from_slice(p.header);
     out.extend_from_slice(&env);
@@ -691,6 +747,24 @@ mod tests {
         assert_eq!(
             seal_with(b"pw", b"x", Suite::V1, &big, &above, &mut Seq(0), &k).unwrap_err(),
             Error::ParamAboveCap(Param::Memory)
+        );
+    }
+
+    #[test]
+    fn rewrap_at_max_version_is_refused_not_wrapped() {
+        let file = seal_with(b"pw", b"x", Suite::V1, &F, &lim(), &mut Seq(0), &memo_kdf(Tier::Gb2)).unwrap();
+        let p = parse_header(&file, Suite::V1).unwrap();
+        let kdf = memo_kdf(Tier::Gb2);
+        let dek = unwrap_dek_with(b"pw", &p, Tier::Gb2, &kdf).unwrap();
+        let env = build_envelope(b"pw", &F, p.header, &dek, u64::MAX, &mut Seq(7), &kdf).unwrap();
+        let mut at_max = p.header.to_vec();
+        at_max.extend_from_slice(&env);
+        at_max.extend_from_slice(p.payload);
+        let (_, v) = open_min_version_with(b"pw", &at_max, Suite::V1, Tier::Gb2, u64::MAX, &kdf).unwrap();
+        assert_eq!(v, u64::MAX);
+        assert_eq!(
+            rewrap_with(b"pw", b"pw2", &at_max, Suite::V1, &F, &lim(), &mut Seq(9), &kdf).unwrap_err(),
+            Error::VersionOverflow
         );
     }
 
