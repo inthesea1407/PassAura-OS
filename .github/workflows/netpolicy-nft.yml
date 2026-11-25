@@ -1,0 +1,37 @@
+name: netpolicy-nft
+on:
+  push:
+    paths:
+      - "crates/pos-netpolicy/**"
+      - "scripts/ci/netpolicy-live.sh"
+      - ".github/workflows/netpolicy-nft.yml"
+  pull_request:
+    paths:
+      - "crates/pos-netpolicy/**"
+      - "scripts/ci/netpolicy-live.sh"
+      - ".github/workflows/netpolicy-nft.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nft-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install nftables
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q nftables iproute2
+          nft --version
+      - name: Generate rule files with pos-netpolicy
+        run: |
+          mkdir -p /tmp/nftrules
+          POS_NFT_OUT_DIR=/tmp/nftrules POS_NFT_UID=48123 cargo test --locked -p pos-netpolicy --test nft_live -- --ignored
+          ls -l /tmp/nftrules
+      - name: nft -c and namespace enforcement
+        run: scripts/ci/netpolicy-live.sh /tmp/nftrules 48123
