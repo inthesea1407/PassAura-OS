@@ -23,6 +23,10 @@ fn write(dir: &TempDir, name: &str, contents: &str) -> std::path::PathBuf {
 /// keygen + sign: returns (keyring path, signed v2 allowlist path).
 /// `pkgs` is a JSON array of {name, version}; each becomes a v2 entry.
 fn signed(dir: &TempDir, issued: u64, expires: u64, pkgs: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+    signed_sha(dir, issued, expires, pkgs, &"a".repeat(64))
+}
+
+fn signed_sha(dir: &TempDir, issued: u64, expires: u64, pkgs: &str, sha: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let keys = dir.path().join("keys");
     bin().args(["keygen", "--out", keys.to_str().unwrap()]).assert().code(0);
     let kr: serde_json::Value = serde_json::from_str(&fs::read_to_string(keys.join("keyring.json")).unwrap()).unwrap();
@@ -31,7 +35,7 @@ fn signed(dir: &TempDir, issued: u64, expires: u64, pkgs: &str) -> (std::path::P
     let list: Vec<serde_json::Value> = serde_json::from_str(pkgs).unwrap();
     let entries: Vec<serde_json::Value> = list
         .iter()
-        .map(|e| serde_json::json!({"name": e["name"], "version": e["version"], "sha256": "a".repeat(64)}))
+        .map(|e| serde_json::json!({"name": e["name"], "version": e["version"], "sha256": sha}))
         .collect();
     let doc = serde_json::json!({
         "format": "passaura-allowlist", "version": 2, "sequence": 1,
@@ -589,4 +593,132 @@ fn a_documents_own_keyring_cannot_establish_trust_in_verify_or_install() {
     let pk = hex::encode(sk.verifying_key().to_bytes());
     let good = write(&dir, "good.json", &format!(r#"{{"keys":[{{"key_id":"{kid}","public_key_hex":"{pk}"}}]}}"#));
     bin().args(["verify", al.to_str().unwrap(), "--keyring", good.to_str().unwrap()]).assert().code(0);
+}
+
+
+// --- exact-file install and recovery (SAFE paths only) --------------------
+// No test here may reach the real runner: every case below fails or finishes
+// before any command is built (dry-run, usage errors, nothing to recover,
+// lock held). Install/retry/abandon flows run with a fake runner in
+// src/main.rs unit tests.
+
+const DEB: &[u8] = b"pretend this is a .deb";
+
+fn deb_sha() -> String {
+    // sha256 of DEB computed with the system tool-free path: use the CLI-independent
+    // sha2 crate.
+    use sha2::{Digest, Sha256};
+    hex_lower(&Sha256::digest(DEB))
+}
+
+fn hex_lower(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn pkg_setup(dir: &TempDir) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+    let (kr, al) = signed_sha(dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#, &deb_sha());
+    let deb = write(dir, "p.deb", std::str::from_utf8(DEB).unwrap());
+    (kr, al, deb)
+}
+
+#[test]
+fn package_file_dry_run_checks_hash_and_writes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al, deb) = pkg_setup(&dir);
+    let state = dir.path().join("state.json");
+    let audit = dir.path().join("audit.log");
+    bin()
+        .args(["install", "ripgrep", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(),
+               "--package-file", deb.to_str().unwrap(), "--state", state.to_str().unwrap(), "--audit-log", audit.to_str().unwrap()])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("nothing was written"));
+    for n in ["state.json", "audit.log", "state.json.lock", "state.json.install-journal", "state.json.stage"] {
+        assert!(!dir.path().join(n).exists(), "{n} must not be created by dry-run");
+    }
+}
+
+#[test]
+fn package_file_dry_run_hash_mismatch_is_exit_2() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al, deb) = pkg_setup(&dir);
+    fs::write(&deb, b"tampered").unwrap();
+    bin()
+        .args(["install", "ripgrep", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--package-file", deb.to_str().unwrap()])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("mismatch"));
+}
+
+#[test]
+fn package_file_dry_run_not_allowed_is_exit_3() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al, deb) = pkg_setup(&dir);
+    bin()
+        .args(["install", "nmap", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--package-file", deb.to_str().unwrap()])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn recover_flag_has_no_default_and_needs_state_and_audit() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al, _deb) = pkg_setup(&dir);
+    let base = |extra: &[&str]| {
+        let mut v = vec!["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()];
+        v.extend_from_slice(extra);
+        v.into_iter().map(String::from).collect::<Vec<_>>()
+    };
+    bin().args(base(&["--recover"])).assert().code(4);
+    bin().args(base(&["--recover", "maybe"])).assert().code(4);
+    bin().args(base(&["--recover", "abandon"])).assert().code(4);
+    bin().args(base(&["--recover", "retry", "--state", dir.path().join("s.json").to_str().unwrap()])).assert().code(4);
+    // A real package-file install also needs both paths.
+    bin().args(base(&["--package-file", dir.path().join("p.deb").to_str().unwrap()])).assert().code(4);
+    assert!(!dir.path().join("s.json").exists());
+}
+
+#[test]
+fn recover_without_a_journal_is_exit_2_and_changes_nothing() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al, _deb) = pkg_setup(&dir);
+    let state = dir.path().join("state.json");
+    let audit = dir.path().join("audit.log");
+    for mode in ["retry", "abandon"] {
+        bin()
+            .args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(),
+                   "--state", state.to_str().unwrap(), "--audit-log", audit.to_str().unwrap(), "--recover", mode])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::contains("no unresolved"));
+    }
+    assert!(!audit.exists());
+}
+
+#[test]
+fn legacy_dry_run_with_state_does_not_create_the_state_file() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
+    let state = dir.path().join("state.json");
+    bin()
+        .args(["install", "ripgrep", "--dry-run", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--state", state.to_str().unwrap()])
+        .assert()
+        .code(0);
+    assert!(!state.exists());
+    assert!(!dir.path().join("state.json.lock").exists());
+}
+
+#[test]
+fn legacy_state_write_is_refused_while_another_process_holds_the_lock() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
+    let state = dir.path().join("state.json");
+    let lock = fs::OpenOptions::new().create(true).write(true).open(dir.path().join("state.json.lock")).unwrap();
+    lock.try_lock().unwrap();
+    bin()
+        .args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--state", state.to_str().unwrap()])
+        .assert()
+        .code(2);
+    assert!(!state.exists(), "state must not be written while locked");
+    drop(lock);
 }

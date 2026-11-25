@@ -67,6 +67,21 @@ pub enum AuditEvent {
     GateAudited,
     KeyRotated,
     RollbackDetected,
+    // --- Install transaction events (pos-install). Additive: the canonical
+    // hash format is unchanged, but a reader built before these variants
+    // existed fails to parse a log that contains them.
+    /// Staged bytes did not match the signed SHA-256; nothing was installed.
+    InstallHashMismatch,
+    /// Install did not complete (command failed, or attempt aborted before the command).
+    InstallFailed,
+    /// Install command succeeded, sequence persisted, attempt committed.
+    InstallCommitted,
+    /// Outcome of the install command is unknown (crash around the command).
+    InstallIndeterminate,
+    /// An operator explicitly retried an indeterminate attempt.
+    InstallRetried,
+    /// An operator explicitly abandoned an unresolved attempt.
+    InstallAbandoned,
 }
 
 /// One hash-chained audit record.
@@ -108,6 +123,12 @@ fn event_json_name(e: AuditEvent) -> &'static str {
         AuditEvent::GateAudited => "gate_audited",
         AuditEvent::KeyRotated => "key_rotated",
         AuditEvent::RollbackDetected => "rollback_detected",
+        AuditEvent::InstallHashMismatch => "install_hash_mismatch",
+        AuditEvent::InstallFailed => "install_failed",
+        AuditEvent::InstallCommitted => "install_committed",
+        AuditEvent::InstallIndeterminate => "install_indeterminate",
+        AuditEvent::InstallRetried => "install_retried",
+        AuditEvent::InstallAbandoned => "install_abandoned",
     }
 }
 
@@ -301,6 +322,82 @@ impl<C: Clock> AuditLog<C> {
         }
         Ok(())
     }
+}
+
+/// Plan the next record of the log stored at `path` (a missing file is an
+/// empty chain) without writing it. The whole chain is verified first. The
+/// timestamp is clamped to the last record's, as in [`AuditLog::append`].
+pub fn plan_next_record(
+    path: &Path,
+    timestamp: u64,
+    event: AuditEvent,
+) -> std::io::Result<AuditRecord> {
+    let records = read_verified_records(path)?;
+    Ok(plan_after(&records, timestamp, event))
+}
+
+fn plan_after(records: &[AuditRecord], timestamp: u64, event: AuditEvent) -> AuditRecord {
+    let seq = records.len() as u64 + 1;
+    let timestamp = match records.last() {
+        Some(prev) => timestamp.max(prev.timestamp),
+        None => timestamp,
+    };
+    let prev_hash = records
+        .last()
+        .map(|r| r.hash.clone())
+        .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
+    let hash = AuditRecord::compute_hash(seq, timestamp, event, &prev_hash);
+    AuditRecord { seq, timestamp, event, prev_hash, hash }
+}
+
+fn read_verified_records(path: &Path) -> std::io::Result<Vec<AuditRecord>> {
+    match File::open(path) {
+        Ok(_) => Ok(AuditLog::load_from_file(path, FixedClock(0))?.records),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e),
+    }
+}
+
+/// Outcome of [`append_planned_durable`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendOutcome {
+    /// The record was written and synced by this call.
+    Written,
+    /// The identical record (same seq and hash) was already in the log.
+    AlreadyPresent,
+}
+
+/// Durably append a record produced by [`plan_next_record`]. The chain is
+/// re-verified; if the log already holds this exact record nothing is
+/// written. If the chain moved on (another record at that position, or a
+/// different head), this fails with `InvalidData` so the caller can re-plan.
+/// One line is appended with `O_APPEND`, then the file (and, when the file
+/// was created, its directory) is synced. Existing content is never rewritten.
+pub fn append_planned_durable(path: &Path, rec: &AuditRecord) -> std::io::Result<AppendOutcome> {
+    let records = read_verified_records(path)?;
+    if let Some(existing) = records.get((rec.seq as usize).wrapping_sub(1)) {
+        if existing == rec {
+            return Ok(AppendOutcome::AlreadyPresent);
+        }
+    }
+    let planned = plan_after(&records, rec.timestamp, rec.event);
+    if planned != *rec {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "audit chain changed since the record was planned",
+        ));
+    }
+    let existed = path.exists();
+    let mut f = OpenOptions::new().create(true).append(true).open(path)?;
+    let line = serde_json::to_string(rec).expect("AuditRecord serializes");
+    writeln!(f, "{line}")?;
+    f.sync_all()?;
+    if !existed {
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            File::open(dir)?.sync_all()?;
+        }
+    }
+    Ok(AppendOutcome::Written)
 }
 
 /// External anchor published by the operator alongside the log file:

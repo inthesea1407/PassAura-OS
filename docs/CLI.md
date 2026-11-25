@@ -120,3 +120,9 @@ trust (a document's own keyring cannot vouch for itself, including a same-`key_i
 keyring), `sign` (key mismatch, no overwrite), `allowlist-migrate` (success, unsigned result fails
 `verify`, missing hashes, wrong key, protected and existing output paths), keygen, audit, and
 no-panic on garbage input. Vectors: `docs/CONFORMANCE.md`.
+
+## Exact-file install and recovery
+
+`install` also takes `--package-file <deb>`, `--audit-log <file>` and `--recover retry|abandon` (no
+default). They are described in `docs/INSTALL_PIPELINE.md`, including exit codes, the retry warning and
+the torn-journal limit. Without those flags `install` behaves as before.

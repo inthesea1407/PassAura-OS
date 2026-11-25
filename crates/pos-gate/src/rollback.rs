@@ -225,6 +225,40 @@ impl RollbackStore {
         Ok(())
     }
 
+    /// Re-read the state file, then check the candidate against it, without
+    /// writing anything. Additive helper for callers that hold their own lock
+    /// and persist later.
+    pub fn refresh_and_check(
+        &mut self,
+        candidate_seq: u64,
+        candidate_digest_hex: &str,
+    ) -> Result<(), RollbackError> {
+        self.refresh_from_disk()?;
+        self.check_candidate(candidate_seq, candidate_digest_hex)
+    }
+
+    /// Read the state file strictly and WITHOUT creating or changing anything.
+    /// `Ok(None)` means the file does not exist. Empty, truncated or
+    /// wrong-shaped content is `CorruptState`.
+    pub fn read_state_readonly(
+        state_path: impl AsRef<Path>,
+    ) -> Result<Option<RollbackRecord>, RollbackError> {
+        let path = state_path.as_ref();
+        let raw = match fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(e.into()),
+        };
+        let text = String::from_utf8(raw)
+            .map_err(|_| RollbackError::CorruptState("state file is not UTF-8".into()))?;
+        if text.trim().is_empty() {
+            return Err(RollbackError::CorruptState("state file is empty".into()));
+        }
+        serde_json::from_str(&text)
+            .map(Some)
+            .map_err(|e| RollbackError::CorruptState(format!("invalid JSON: {e}")))
+    }
+
     pub fn last_seq(&self) -> u64 {
         self.last_seq
     }

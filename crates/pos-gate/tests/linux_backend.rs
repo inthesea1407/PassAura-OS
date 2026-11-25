@@ -496,3 +496,40 @@ fn trusted_key_with_same_id_but_different_public_key_is_rejected() {
     assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
     assert!(backend.runner().calls.is_empty());
 }
+
+mod exact_file_fate {
+    use super::*;
+    use pos_gate::linux_backend::{CommandOutput, CommandRunner, RUNNER_NOT_STARTED_PREFIX};
+
+    struct R(Result<CommandOutput, String>);
+    impl CommandRunner for R {
+        fn run(&mut self, _p: &str, _a: &[String]) -> Result<CommandOutput, String> {
+            self.0.clone()
+        }
+    }
+
+    fn go(r: Result<CommandOutput, String>) -> Result<(), PackageBackendError> {
+        let fixture = fixture();
+        let mut b = AptDpkgBackend::new(R(r));
+        b.install_staged_file(
+            "curl",
+            std::path::Path::new("/tmp/x.deb"),
+            &fixture.doc,
+            &fixture.keys,
+            200,
+            None,
+            InstallMode::Apply,
+        )
+        .map(|_| ())
+    }
+
+    #[test]
+    fn only_runner_err_with_prefix_is_proof_of_not_started() {
+        let m = format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed");
+        assert!(matches!(go(Err(m.clone())), Err(PackageBackendError::RunnerNotStarted { .. })));
+        // Same text inside finished-command output is NOT proof.
+        let out = CommandOutput { success: false, code: None, message: m };
+        assert!(matches!(go(Ok(out)), Err(PackageBackendError::RunnerFailure { code: None, .. })));
+        assert!(matches!(go(Err("wait failed".into())), Err(PackageBackendError::RunnerFailure { code: None, .. })));
+    }
+}

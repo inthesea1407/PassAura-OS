@@ -16,9 +16,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use pos_gate::Keyring;
+
+#[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum RecoverMode {
+    Retry,
+    Abandon,
+}
 
 #[derive(Parser)]
 #[command(
@@ -105,6 +111,18 @@ enum Cmd {
         /// Rollback state file (v2 allowlists only); updated after a real install.
         #[arg(long)]
         state: Option<PathBuf>,
+        /// Install this LOCAL .deb file. Its SHA-256 must equal the signed
+        /// allowlist entry for the package. No network.
+        #[arg(long)]
+        package_file: Option<PathBuf>,
+        /// Hash-chained audit log; required for --package-file installs and --recover.
+        #[arg(long)]
+        audit_log: Option<PathBuf>,
+        /// Resolve an unresolved earlier attempt. No default: pick one.
+        /// `retry` may REPEAT package maintainer-script side effects.
+        /// `abandon` undoes nothing and does not advance the sequence.
+        #[arg(long, value_enum)]
+        recover: Option<RecoverMode>,
     },
     /// Convert a legacy text-v1 allowlist to an UNSIGNED v2 document (offline, one way).
     ///
@@ -171,10 +189,13 @@ fn check_v2(
     bytes: &[u8],
     trusted: &Keyring,
     state: Option<&PathBuf>,
+    read_only: bool,
 ) -> Result<pos_gate::allowlist_v2::V2Allowlist, String> {
     use pos_gate::allowlist_v2::{canonical_digest_hex, parse_v2, verify_v2_trusted};
     let doc = parse_v2(bytes).map_err(|e| format!("invalid allowlist: {e}"))?;
     let store = match state {
+        // Read-only (dry-run): a missing state file is not created.
+        Some(p) if read_only && !p.exists() => None,
         Some(p) => Some(pos_gate::rollback::RollbackStore::open(p).map_err(|e| e.to_string())?),
         None => None,
     };
@@ -209,7 +230,7 @@ fn cmd_verify(allowlist: PathBuf, keyring: PathBuf, state: Option<PathBuf>) -> E
             return ExitCode::from(2);
         }
     };
-    match check_v2(&allowlist_bytes, &kr, state.as_ref()) {
+    match check_v2(&allowlist_bytes, &kr, state.as_ref(), false) {
         Ok(d) => {
             println!("ok: v2 allowlist verified (sequence {})", d.sequence);
             ExitCode::SUCCESS
@@ -221,14 +242,203 @@ fn cmd_verify(allowlist: PathBuf, keyring: PathBuf, state: Option<PathBuf>) -> E
     }
 }
 
-fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: bool, state: Option<PathBuf>) -> ExitCode {
-    if package.is_empty()
+struct InstallArgs {
+    package: String,
+    allowlist: PathBuf,
+    keyring: PathBuf,
+    dry_run: bool,
+    state: Option<PathBuf>,
+    package_file: Option<PathBuf>,
+    audit_log: Option<PathBuf>,
+    recover: Option<RecoverMode>,
+}
+
+fn install_exit_code(e: &pos_install::InstallError) -> u8 {
+    match e {
+        pos_install::InstallError::NotAllowed => 3,
+        pos_install::InstallError::InvalidPackageName => 4,
+        _ => 2,
+    }
+}
+
+fn valid_package_identifier(package: &str) -> bool {
+    !(package.is_empty()
         || package.starts_with('-')
-        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':'))
-    {
-        eprintln!("invalid package identifier: {package}");
+        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':')))
+}
+
+fn make_pipeline<R: pos_gate::linux_backend::CommandRunner>(
+    runner: R,
+    state: &std::path::Path,
+    audit: &std::path::Path,
+    package_file: Option<&PathBuf>,
+) -> pos_install::Pipeline<
+    pos_gate::linux_backend::AptDpkgBackend<R>,
+    pos_install::LocalFileFetcher,
+    pos_gate::rollback::StdFileOps,
+> {
+    pos_install::Pipeline::new(
+        pos_install::InstallPaths::new(state, audit),
+        pos_gate::linux_backend::AptDpkgBackend::new(runner),
+        pos_install::LocalFileFetcher { path: package_file.cloned().unwrap_or_default() },
+        pos_gate::rollback::StdFileOps,
+    )
+}
+
+/// The exact-file / recovery paths. Generic over the runner so unit tests use
+/// a fake; the real binary passes `ProcessRunner`.
+fn run_pipeline_install<R: pos_gate::linux_backend::CommandRunner>(runner: R, a: InstallArgs) -> ExitCode {
+    let (state, audit) = match (&a.state, &a.audit_log) {
+        (Some(s), Some(l)) => (s.clone(), l.clone()),
+        _ if a.dry_run && a.recover.is_none() => (a.state.clone().unwrap_or_default(), a.audit_log.clone().unwrap_or_default()),
+        _ => {
+            eprintln!("error: --package-file installs and --recover need both --state and --audit-log");
+            return ExitCode::from(4);
+        }
+    };
+    if a.recover.is_some() && a.dry_run {
+        eprintln!("error: --recover cannot be combined with --dry-run");
         return ExitCode::from(4);
     }
+    if a.recover.is_none() && a.package_file.is_none() {
+        eprintln!("error: this path needs --package-file");
+        return ExitCode::from(4);
+    }
+    let mut pipeline = make_pipeline(runner, &state, &audit, a.package_file.as_ref());
+
+    if a.recover == Some(RecoverMode::Abandon) {
+        // Abandon needs neither the allowlist nor the keyring.
+        return match pipeline.abandon() {
+            Ok(()) => {
+                println!("abandoned: the unresolved attempt is closed. Abandon itself uninstalls nothing and does not change the rollback sequence; the stored sequence is whatever it already was (check it, and the package state, by hand).");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(install_exit_code(&e))
+            }
+        };
+    }
+
+    let bytes = match read_json(&a.allowlist) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let doc = match pos_gate::allowlist_v2::parse_v2(&bytes) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: invalid allowlist: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let kr = match read_json(&a.keyring).and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string())) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("error: invalid keyring: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let req = pos_install::Request { package: &a.package, doc: &doc, trusted: &kr, now: now_secs() as i64 };
+
+    if a.dry_run {
+        return match pipeline.dry_run(&req) {
+            Ok(r) => {
+                println!("dry-run: would install {} (sequence {}) from {}; nothing was written", r.package, r.sequence, r.source);
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(install_exit_code(&e))
+            }
+        };
+    }
+
+    let result = if a.recover == Some(RecoverMode::Retry) {
+        eprintln!(
+            "WARNING: --recover retry runs the install command again. The earlier attempt may have partly or fully \
+             run, so package maintainer scripts and other side effects can be REPEATED. Press on only if you checked \
+             the package state."
+        );
+        pipeline.retry(&req)
+    } else {
+        pipeline.install(&req)
+    };
+    match result {
+        Ok(pos_install::Outcome::Committed { sequence }) => {
+            println!("installed: {} (sequence {sequence} recorded)", a.package);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(install_exit_code(&e))
+        }
+    }
+}
+
+/// Runs only `apt-get` or `dpkg`, never through a shell, with a fixed
+/// environment and no stdin. Used by the real binary only. It is never run by
+/// any test and has not been exercised on a real system.
+struct ProcessRunner;
+
+impl pos_gate::linux_backend::CommandRunner for ProcessRunner {
+    fn run(&mut self, program: &str, args: &[String]) -> Result<pos_gate::linux_backend::CommandOutput, String> {
+        use pos_gate::linux_backend::{CommandOutput, RUNNER_NOT_STARTED_PREFIX};
+        use std::process::{Command, Stdio};
+        let exe = match program {
+            "apt-get" => "/usr/bin/apt-get",
+            "dpkg" => "/usr/bin/dpkg",
+            other => return Err(format!("{RUNNER_NOT_STARTED_PREFIX}program {other} is not permitted")),
+        };
+        // Spawn failure is the ONLY point where non-start is proven. Everything
+        // after a successful spawn is an unknown outcome if it fails.
+        let child = Command::new(exe)
+            .args(args)
+            .env_clear()
+            .env("PATH", "/usr/sbin:/usr/bin:/sbin:/bin")
+            .env("DEBIAN_FRONTEND", "noninteractive")
+            .env("LC_ALL", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed: {e}"))?;
+        let out = child.wait_with_output().map_err(|e| format!("wait/read failed after spawn: {e}"))?;
+        let tail = |b: &[u8]| {
+            let t = String::from_utf8_lossy(b);
+            let t = t.trim();
+            let start = t.len().saturating_sub(2000);
+            let mut i = start;
+            while !t.is_char_boundary(i) {
+                i += 1;
+            }
+            t[i..].to_string()
+        };
+        Ok(CommandOutput { success: out.status.success(), code: out.status.code(), message: tail(&out.stderr) })
+    }
+}
+
+fn cmd_install(a: InstallArgs) -> ExitCode {
+    if !valid_package_identifier(&a.package) {
+        eprintln!("invalid package identifier: {}", a.package);
+        return ExitCode::from(4);
+    }
+    if a.package_file.is_some() || a.recover.is_some() {
+        return run_pipeline_install(ProcessRunner, a);
+    }
+    if a.audit_log.is_some() {
+        eprintln!("error: --audit-log is only used with --package-file or --recover");
+        return ExitCode::from(4);
+    }
+    cmd_install_legacy(a)
+}
+
+/// Original behavior, unchanged, except the real state write takes the
+/// cooperative state lock and dry-run no longer creates the state file.
+fn cmd_install_legacy(a: InstallArgs) -> ExitCode {
+    let InstallArgs { package, allowlist, keyring, dry_run, state, .. } = a;
     let bytes = match read_json(&allowlist) {
         Ok(b) => b,
         Err(e) => {
@@ -248,7 +458,19 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
             return ExitCode::from(2);
         }
     };
-    let doc = match check_v2(&bytes, &kr, state.as_ref()) {
+    // A real install takes the cooperative state lock before the state file is
+    // opened (opening creates it), and holds it through the write.
+    let _lock = match (&state, dry_run) {
+        (Some(sp), false) => match pos_install::lock::StateLock::acquire(sp, std::time::Duration::from_secs(5)) {
+            Ok(l) => Some(l),
+            Err(e) => {
+                eprintln!("error: {e}");
+                return ExitCode::from(2);
+            }
+        },
+        _ => None,
+    };
+    let doc = match check_v2(&bytes, &kr, state.as_ref(), dry_run) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("verification failed: {e}");
@@ -269,18 +491,18 @@ fn cmd_install(package: String, allowlist: PathBuf, keyring: PathBuf, dry_run: b
     } else {
         if let Some(sp) = &state {
             let digest = pos_gate::allowlist_v2::canonical_digest_hex(&doc).unwrap_or_default();
-            let r = pos_gate::rollback::RollbackStore::open(sp)
-                .and_then(|mut st| st.accept_and_persist(doc.sequence, &digest, Some(now_secs() as i64)));
+            let r = pos_gate::rollback::RollbackStore::open(sp).and_then(|mut st| {
+                st.refresh_and_check(doc.sequence, &digest)?;
+                st.accept_and_persist(doc.sequence, &digest, Some(now_secs() as i64))
+            });
             if let Err(e) = r {
                 eprintln!("error: cannot record rollback state: {e}");
                 return ExitCode::from(2);
             }
         }
-        // The real installer is out of scope; this prints intent only. The
-        // state file records that intent and is NOT rollback protection: it can
-        // be deleted (which resets the counter), has no inter-process lock, and
-        // no installer is connected to it.
-        println!("install: {package} is allowed (installer not wired in this build)");
+        // No installer is connected on this path (use --package-file). The
+        // state file records intent only.
+        println!("install: {package} is allowed (installer not wired in this build; use --package-file)");
     }
     ExitCode::SUCCESS
 }
@@ -495,7 +717,9 @@ fn main() -> ExitCode {
 
     match cli.cmd {
         Cmd::Verify { allowlist, keyring, state } => cmd_verify(allowlist, keyring, state),
-        Cmd::Install { package, allowlist, keyring, dry_run, state } => cmd_install(package, allowlist, keyring, dry_run, state),
+        Cmd::Install { package, allowlist, keyring, dry_run, state, package_file, audit_log, recover } => {
+            cmd_install(InstallArgs { package, allowlist, keyring, dry_run, state, package_file, audit_log, recover })
+        }
         Cmd::AllowlistMigrate { from_v1, trusted_key, sha256_map, out } => cmd_migrate(from_v1, trusted_key, sha256_map, out),
         Cmd::Sign { allowlist, private_key, out } => cmd_sign(allowlist, private_key, out),
         Cmd::Keygen { out } => cmd_keygen(out),
@@ -532,5 +756,252 @@ mod tests {
         assert!(check_new_output(&fresh, &[]).unwrap_err().contains("already exists"));
         assert!(check_new_output(&dir.join("missing-dir/new.json"), &[]).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- exact-file install flow with a FAKE runner. The real ProcessRunner
+    // is never constructed here, so no apt-get/dpkg is ever run by tests. ----
+    mod flow {
+        use super::*;
+        use ed25519_dalek::Signer;
+        use pos_gate::linux_backend::{CommandOutput, CommandRunner, RUNNER_NOT_STARTED_PREFIX};
+        use sha2::{Digest, Sha256};
+        use std::sync::{Arc, Mutex};
+
+        const CONTENT: &[u8] = b"pretend this is a .deb";
+
+        #[derive(Clone)]
+        struct Fake {
+            calls: Arc<Mutex<Vec<(String, Vec<String>)>>>,
+            script: Arc<Mutex<Vec<Result<CommandOutput, String>>>>,
+        }
+        impl Fake {
+            fn new(script: Vec<Result<CommandOutput, String>>) -> Self {
+                Fake { calls: Default::default(), script: Arc::new(Mutex::new(script)) }
+            }
+            fn n(&self) -> usize {
+                self.calls.lock().unwrap().len()
+            }
+        }
+        impl CommandRunner for Fake {
+            fn run(&mut self, p: &str, a: &[String]) -> Result<CommandOutput, String> {
+                self.calls.lock().unwrap().push((p.to_string(), a.to_vec()));
+                let mut s = self.script.lock().unwrap();
+                if s.is_empty() {
+                    panic!("unexpected extra command run");
+                }
+                s.remove(0)
+            }
+        }
+        fn ok() -> Result<CommandOutput, String> {
+            Ok(CommandOutput { success: true, code: Some(0), message: String::new() })
+        }
+        fn exit(code: i32) -> Result<CommandOutput, String> {
+            Ok(CommandOutput { success: false, code: Some(code), message: "dpkg: error".into() })
+        }
+
+        struct Env {
+            dir: std::path::PathBuf,
+        }
+        impl Env {
+            fn new(tag: &str) -> Env {
+                let dir = std::env::temp_dir().join(format!("pos-cli-flow-{}-{tag}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                std::fs::write(dir.join("p.deb"), CONTENT).unwrap();
+                let sk = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+                let pk = hex::encode(sk.verifying_key().to_bytes());
+                let kid = pos_gate::allowlist_v2::derive_key_id(&pk);
+                let now = now_secs() as i64;
+                let mut doc = pos_gate::allowlist_v2::V2Allowlist {
+                    format: "passaura-allowlist".into(),
+                    version: 2,
+                    sequence: 4,
+                    issued_at: now - 100,
+                    expires_at: now + 86_400,
+                    signed_by: kid.clone(),
+                    keyring: pos_gate::allowlist_v2::V2Keyring {
+                        keys: vec![pos_gate::allowlist_v2::V2Key {
+                            key_id: kid.clone(),
+                            public_key_hex: pk.clone(),
+                            valid_from: 0,
+                            valid_until: now + 86_400,
+                            retired: false,
+                        }],
+                    },
+                    entries: vec![pos_gate::allowlist_v2::V2Entry {
+                        name: "ripgrep".into(),
+                        version: Some("14".into()),
+                        sha256: hex::encode(Sha256::digest(CONTENT)),
+                    }],
+                    signature_hex: String::new(),
+                };
+                let payload = pos_gate::allowlist_v2::canonical_payload_bytes(&doc).unwrap();
+                doc.signature_hex = hex::encode(sk.sign(&payload).to_bytes());
+                std::fs::write(dir.join("al.json"), serde_json::to_vec(&doc).unwrap()).unwrap();
+                let kr = serde_json::json!({"keys":[{"key_id": kid, "public_key_hex": pk}]});
+                std::fs::write(dir.join("kr.json"), kr.to_string()).unwrap();
+                Env { dir }
+            }
+            fn args(&self, dry_run: bool, recover: Option<RecoverMode>) -> InstallArgs {
+                InstallArgs {
+                    package: "ripgrep".into(),
+                    allowlist: self.dir.join("al.json"),
+                    keyring: self.dir.join("kr.json"),
+                    dry_run,
+                    state: Some(self.dir.join("state.json")),
+                    package_file: Some(self.dir.join("p.deb")),
+                    audit_log: Some(self.dir.join("audit.log")),
+                    recover,
+                }
+            }
+            fn seq(&self) -> Option<u64> {
+                pos_gate::rollback::RollbackStore::read_state_readonly(self.dir.join("state.json"))
+                    .unwrap()
+                    .map(|r| r.last_seq)
+            }
+            fn journal(&self) -> bool {
+                pos_install::pipeline::journal_present(&self.dir.join("state.json"))
+            }
+        }
+        impl Drop for Env {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+        }
+        fn code(c: ExitCode) -> String {
+            format!("{c:?}")
+        }
+
+        #[test]
+        fn success_runs_dpkg_once_on_the_staged_file_and_records_sequence() {
+            let e = Env::new("ok");
+            let f = Fake::new(vec![ok()]);
+            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::SUCCESS));
+            assert_eq!(e.seq(), Some(4));
+            assert!(!e.journal());
+            let calls = f.calls.lock().unwrap();
+            assert_eq!(calls.len(), 1);
+            assert_eq!(calls[0].0, "dpkg");
+            assert_eq!(&calls[0].1[..2], &["-i".to_string(), "--".to_string()]);
+        }
+
+        #[test]
+        fn dry_run_runs_nothing_and_creates_no_state_audit_journal_or_lock() {
+            let e = Env::new("dry");
+            let f = Fake::new(vec![]);
+            assert_eq!(code(run_pipeline_install(f.clone(), e.args(true, None))), code(ExitCode::SUCCESS));
+            assert_eq!(f.n(), 0);
+            for n in ["state.json", "audit.log", "state.json.lock", "state.json.install-journal", "state.json.stage"] {
+                assert!(!e.dir.join(n).exists(), "{n} must not exist");
+            }
+        }
+
+        #[test]
+        fn nonzero_exit_exit2_sequence_unchanged() {
+            let e = Env::new("nz");
+            let f = Fake::new(vec![exit(100)]);
+            assert_eq!(code(run_pipeline_install(f, e.args(false, None))), code(ExitCode::from(2)));
+            assert_ne!(e.seq(), Some(4));
+            assert!(!e.journal());
+        }
+
+        #[test]
+        fn proven_not_started_is_definite_failure() {
+            let e = Env::new("ns");
+            let f = Fake::new(vec![Err(format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed"))]);
+            assert_eq!(code(run_pipeline_install(f, e.args(false, None))), code(ExitCode::from(2)));
+            assert!(!e.journal());
+            assert_ne!(e.seq(), Some(4));
+        }
+
+        #[test]
+        fn unknown_outcome_blocks_then_retry_succeeds() {
+            let e = Env::new("unk");
+            let f = Fake::new(vec![Err("wait/read failed after spawn: x".into()), ok()]);
+            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::from(2)));
+            assert!(e.journal());
+            assert_ne!(e.seq(), Some(4));
+            // A plain install is refused and runs nothing.
+            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::from(2)));
+            assert_eq!(f.n(), 1);
+            // Explicit retry runs once more and commits.
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, Some(RecoverMode::Retry)))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 2);
+            assert_eq!(e.seq(), Some(4));
+            assert!(!e.journal());
+        }
+
+        #[test]
+        fn unknown_outcome_then_abandon_runs_nothing_and_unblocks() {
+            let e = Env::new("ab");
+            let f = Fake::new(vec![Err("wait failed".into()), ok()]);
+            run_pipeline_install(f.clone(), e.args(false, None));
+            assert!(e.journal());
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, Some(RecoverMode::Abandon)))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 1);
+            assert!(!e.journal());
+            assert_ne!(e.seq(), Some(4));
+            // New install is allowed after abandon.
+            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::SUCCESS));
+            assert_eq!(e.seq(), Some(4));
+        }
+
+        #[test]
+        fn retry_and_abandon_without_a_journal_run_nothing_and_exit2() {
+            let e = Env::new("nj");
+            let f = Fake::new(vec![]);
+            for m in [RecoverMode::Retry, RecoverMode::Abandon] {
+                assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, Some(m)))), code(ExitCode::from(2)));
+            }
+            assert_eq!(f.n(), 0);
+        }
+
+        #[test]
+        fn torn_journal_fails_closed_for_install_retry_and_abandon() {
+            let e = Env::new("torn");
+            let f = Fake::new(vec![Err("wait failed".into())]);
+            run_pipeline_install(f.clone(), e.args(false, None));
+            let jp = e.dir.join("state.json.install-journal");
+            let mut b = std::fs::read(&jp).unwrap();
+            assert_eq!(b.pop(), Some(b'\n'));
+            b.truncate(b.len() - 3);
+            std::fs::write(&jp, &b).unwrap();
+            for m in [None, Some(RecoverMode::Retry), Some(RecoverMode::Abandon)] {
+                assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, m))), code(ExitCode::from(2)));
+            }
+            assert_eq!(f.n(), 1, "nothing may run");
+            assert_eq!(std::fs::read(&jp).unwrap(), b, "journal must be left untouched");
+            let msg = format!("{}", pos_install::InstallError::Journal(pos_install::journal::JournalError::Corrupt("x".into())));
+            assert!(msg.contains("dpkg --audit") && msg.contains("Do NOT delete"), "{msg}");
+        }
+
+        #[test]
+        fn pipeline_paths_need_state_and_audit_log() {
+            let e = Env::new("use");
+            let f = Fake::new(vec![]);
+            let mut a = e.args(false, None);
+            a.audit_log = None;
+            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(4)));
+            let mut a = e.args(false, Some(RecoverMode::Abandon));
+            a.state = None;
+            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(4)));
+            assert_eq!(code(run_pipeline_install(f, e.args(true, Some(RecoverMode::Retry)))), code(ExitCode::from(4)));
+        }
+
+        #[test]
+        fn not_allowed_is_exit3_and_runs_nothing() {
+            let e = Env::new("na");
+            let f = Fake::new(vec![]);
+            let mut a = e.args(false, None);
+            a.package = "nmap".into();
+            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(3)));
+            assert_eq!(f.n(), 0);
+        }
     }
 }

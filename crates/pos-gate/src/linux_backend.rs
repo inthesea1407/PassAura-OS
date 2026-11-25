@@ -20,6 +20,17 @@ pub enum PackageBackendError {
         code: Option<i32>,
         message: String,
     },
+    /// Exact-file path only: the runner itself reported (through its own `Err`
+    /// control flow, never through child output) that the program was never
+    /// started. Nothing ran.
+    RunnerNotStarted {
+        program: String,
+        message: String,
+    },
+    /// This backend cannot install an exact staged file.
+    ExactFileUnsupported,
+    /// The staged file path is not an absolute, plain path.
+    InvalidStagedPath,
 }
 
 impl fmt::Display for PackageBackendError {
@@ -32,6 +43,13 @@ impl fmt::Display for PackageBackendError {
                 write!(f, "allowlist verification failed: {e}")
             }
             Self::PackageNotAllowed => f.write_str("package is not allowlisted"),
+            Self::ExactFileUnsupported => {
+                f.write_str("this backend cannot install an exact staged file")
+            }
+            Self::InvalidStagedPath => f.write_str("invalid staged file path"),
+            Self::RunnerNotStarted { program, message } => {
+                write!(f, "command was not started: {program}: {message}")
+            }
             Self::RunnerFailure {
                 program,
                 code,
@@ -53,6 +71,13 @@ pub struct CommandOutput {
     pub code: Option<i32>,
     pub message: String,
 }
+
+/// A runner that PROVES the program was never started (spawn failed before
+/// exec) returns `Err` with a message starting with this prefix; the exact-file
+/// path then yields `RunnerNotStarted`. Any other `Err` (wait/read/interrupt
+/// after spawn) or a signal-killed process (`success == false`, `code == None`)
+/// is an unknown outcome, even if its text imitates the prefix.
+pub const RUNNER_NOT_STARTED_PREFIX: &str = "not started: ";
 
 /// Executes one program with argv. Implementations must not invoke a shell.
 pub trait CommandRunner {
@@ -85,6 +110,23 @@ pub trait PackageBackend {
         stored: Option<(u64, &str)>,
         mode: InstallMode,
     ) -> Result<InstallReport, PackageBackendError>;
+
+    /// Install the exact file at `staged` (already hash-checked by the
+    /// caller against the signed entry). Additive: the by-name `install`
+    /// above is unchanged. Backends that cannot do this keep the default.
+    #[allow(clippy::too_many_arguments)]
+    fn install_staged_file(
+        &mut self,
+        _package: &str,
+        _staged: &std::path::Path,
+        _doc: &V2Allowlist,
+        _trusted: &Keyring,
+        _now: i64,
+        _stored: Option<(u64, &str)>,
+        _mode: InstallMode,
+    ) -> Result<InstallReport, PackageBackendError> {
+        Err(PackageBackendError::ExactFileUnsupported)
+    }
 }
 
 struct VerifiedAllowlist<'a> {
@@ -174,6 +216,19 @@ fn run_command<R: CommandRunner>(
     command: PlannedCommand,
     mode: InstallMode,
 ) -> Result<InstallReport, PackageBackendError> {
+    run_command_ex(runner, command, mode, false)
+}
+
+/// `typed_not_started`: a runner `Err` whose message starts with
+/// `RUNNER_NOT_STARTED_PREFIX` becomes `RunnerNotStarted`. Only the runner's
+/// own `Err` return can do this; text inside a finished command's output
+/// (`CommandOutput.message`) never can.
+fn run_command_ex<R: CommandRunner>(
+    runner: &mut R,
+    command: PlannedCommand,
+    mode: InstallMode,
+    typed_not_started: bool,
+) -> Result<InstallReport, PackageBackendError> {
     if mode == InstallMode::DryRun {
         return Ok(InstallReport {
             command,
@@ -183,10 +238,12 @@ fn run_command<R: CommandRunner>(
 
     let output = runner
         .run(&command.program, &command.args)
-        .map_err(|message| PackageBackendError::RunnerFailure {
-            program: command.program.clone(),
-            code: None,
-            message,
+        .map_err(|message| {
+            if typed_not_started && message.starts_with(RUNNER_NOT_STARTED_PREFIX) {
+                PackageBackendError::RunnerNotStarted { program: command.program.clone(), message }
+            } else {
+                PackageBackendError::RunnerFailure { program: command.program.clone(), code: None, message }
+            }
         })?;
 
     if !output.success {
@@ -260,6 +317,36 @@ impl<R: CommandRunner> PackageBackend for AptDpkgBackend<R> {
         };
 
         run_command(&mut self.runner, command, mode)
+    }
+
+    fn install_staged_file(
+        &mut self,
+        package: &str,
+        staged: &std::path::Path,
+        doc: &V2Allowlist,
+        trusted: &Keyring,
+        now: i64,
+        stored: Option<(u64, &str)>,
+        mode: InstallMode,
+    ) -> Result<InstallReport, PackageBackendError> {
+        if !valid_package_name(package) {
+            return Err(PackageBackendError::InvalidPackageName);
+        }
+        let verified = VerifiedAllowlist::new(doc, trusted, now, stored)?;
+        if !verified.contains(package) {
+            return Err(PackageBackendError::PackageNotAllowed);
+        }
+        // Absolute path only, so it can never be read as an option, and the
+        // `--` separator is passed as well. Non-UTF-8 paths are refused.
+        let path = staged.to_str().ok_or(PackageBackendError::InvalidStagedPath)?;
+        if !staged.is_absolute() || path.contains('\0') {
+            return Err(PackageBackendError::InvalidStagedPath);
+        }
+        let command = PlannedCommand {
+            program: "dpkg".into(),
+            args: vec!["-i".into(), "--".into(), path.into()],
+        };
+        run_command_ex(&mut self.runner, command, mode, true)
     }
 }
 
