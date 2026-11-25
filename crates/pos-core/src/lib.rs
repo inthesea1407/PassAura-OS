@@ -9,6 +9,7 @@ pub mod audit;
 pub mod blocking;
 pub mod device;
 pub mod entitlements;
+pub mod fawry;
 pub mod invite;
 pub mod policy;
 
