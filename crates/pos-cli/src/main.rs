@@ -69,7 +69,11 @@ fn cmd_audit(action: AuditCmd) -> ExitCode {
     };
     match tail {
         None => {
-            println!("audit chain OK: {} records (head {})", log.records().len(), log.head_hash());
+            println!(
+                "audit chain OK: {} records (head {})",
+                log.records().len(),
+                log.head_hash()
+            );
             println!("note: a hash chain cannot show that the newest records were not removed.");
         }
         Some(n) => {
@@ -200,10 +204,20 @@ fn check_v2(
         None => None,
     };
     let digest = canonical_digest_hex(&doc).map_err(|e| e.to_string())?;
-    let stored = store.as_ref().filter(|s| s.last_seq() > 0).map(|s| (s.last_seq(), s.last_digest_hex().to_string()));
-    verify_v2_trusted(&doc, trusted, now_secs() as i64, stored.as_ref().map(|(a, b)| (*a, b.as_str()))).map_err(|e| e.to_string())?;
+    let stored = store
+        .as_ref()
+        .filter(|s| s.last_seq() > 0)
+        .map(|s| (s.last_seq(), s.last_digest_hex().to_string()));
+    verify_v2_trusted(
+        &doc,
+        trusted,
+        now_secs() as i64,
+        stored.as_ref().map(|(a, b)| (*a, b.as_str())),
+    )
+    .map_err(|e| e.to_string())?;
     if let Some(s) = &store {
-        s.check_candidate(doc.sequence, &digest).map_err(|e| e.to_string())?;
+        s.check_candidate(doc.sequence, &digest)
+            .map_err(|e| e.to_string())?;
     }
     Ok(doc)
 }
@@ -264,7 +278,9 @@ fn install_exit_code(e: &pos_install::InstallError) -> u8 {
 fn valid_package_identifier(package: &str) -> bool {
     !(package.is_empty()
         || package.starts_with('-')
-        || !package.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':')))
+        || !package
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '+' | '-' | ':')))
 }
 
 fn make_pipeline<R: pos_gate::linux_backend::CommandRunner>(
@@ -280,19 +296,29 @@ fn make_pipeline<R: pos_gate::linux_backend::CommandRunner>(
     pos_install::Pipeline::new(
         pos_install::InstallPaths::new(state, audit),
         pos_gate::linux_backend::AptDpkgBackend::new(runner),
-        pos_install::LocalFileFetcher { path: package_file.cloned().unwrap_or_default() },
+        pos_install::LocalFileFetcher {
+            path: package_file.cloned().unwrap_or_default(),
+        },
         pos_gate::rollback::StdFileOps,
     )
 }
 
 /// The exact-file / recovery paths. Generic over the runner so unit tests use
 /// a fake; the real binary passes `ProcessRunner`.
-fn run_pipeline_install<R: pos_gate::linux_backend::CommandRunner>(runner: R, a: InstallArgs) -> ExitCode {
+fn run_pipeline_install<R: pos_gate::linux_backend::CommandRunner>(
+    runner: R,
+    a: InstallArgs,
+) -> ExitCode {
     let (state, audit) = match (&a.state, &a.audit_log) {
         (Some(s), Some(l)) => (s.clone(), l.clone()),
-        _ if a.dry_run && a.recover.is_none() => (a.state.clone().unwrap_or_default(), a.audit_log.clone().unwrap_or_default()),
+        _ if a.dry_run && a.recover.is_none() => (
+            a.state.clone().unwrap_or_default(),
+            a.audit_log.clone().unwrap_or_default(),
+        ),
         _ => {
-            eprintln!("error: --package-file installs and --recover need both --state and --audit-log");
+            eprintln!(
+                "error: --package-file installs and --recover need both --state and --audit-log"
+            );
             return ExitCode::from(4);
         }
     };
@@ -334,19 +360,29 @@ fn run_pipeline_install<R: pos_gate::linux_backend::CommandRunner>(runner: R, a:
             return ExitCode::from(2);
         }
     };
-    let kr = match read_json(&a.keyring).and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string())) {
+    let kr = match read_json(&a.keyring)
+        .and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string()))
+    {
         Ok(k) => k,
         Err(e) => {
             eprintln!("error: invalid keyring: {e}");
             return ExitCode::from(2);
         }
     };
-    let req = pos_install::Request { package: &a.package, doc: &doc, trusted: &kr, now: now_secs() as i64 };
+    let req = pos_install::Request {
+        package: &a.package,
+        doc: &doc,
+        trusted: &kr,
+        now: now_secs() as i64,
+    };
 
     if a.dry_run {
         return match pipeline.dry_run(&req) {
             Ok(r) => {
-                println!("dry-run: would install {} (sequence {}) from {}; nothing was written", r.package, r.sequence, r.source);
+                println!(
+                    "dry-run: would install {} (sequence {}) from {}; nothing was written",
+                    r.package, r.sequence, r.source
+                );
                 ExitCode::SUCCESS
             }
             Err(e) => {
@@ -384,13 +420,21 @@ fn run_pipeline_install<R: pos_gate::linux_backend::CommandRunner>(runner: R, a:
 struct ProcessRunner;
 
 impl pos_gate::linux_backend::CommandRunner for ProcessRunner {
-    fn run(&mut self, program: &str, args: &[String]) -> Result<pos_gate::linux_backend::CommandOutput, String> {
+    fn run(
+        &mut self,
+        program: &str,
+        args: &[String],
+    ) -> Result<pos_gate::linux_backend::CommandOutput, String> {
         use pos_gate::linux_backend::{CommandOutput, RUNNER_NOT_STARTED_PREFIX};
         use std::process::{Command, Stdio};
         let exe = match program {
             "apt-get" => "/usr/bin/apt-get",
             "dpkg" => "/usr/bin/dpkg",
-            other => return Err(format!("{RUNNER_NOT_STARTED_PREFIX}program {other} is not permitted")),
+            other => {
+                return Err(format!(
+                    "{RUNNER_NOT_STARTED_PREFIX}program {other} is not permitted"
+                ))
+            }
         };
         // Spawn failure is the ONLY point where non-start is proven. Everything
         // after a successful spawn is an unknown outcome if it fails.
@@ -405,7 +449,9 @@ impl pos_gate::linux_backend::CommandRunner for ProcessRunner {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed: {e}"))?;
-        let out = child.wait_with_output().map_err(|e| format!("wait/read failed after spawn: {e}"))?;
+        let out = child
+            .wait_with_output()
+            .map_err(|e| format!("wait/read failed after spawn: {e}"))?;
         let tail = |b: &[u8]| {
             let t = String::from_utf8_lossy(b);
             let t = t.trim();
@@ -416,7 +462,11 @@ impl pos_gate::linux_backend::CommandRunner for ProcessRunner {
             }
             t[i..].to_string()
         };
-        Ok(CommandOutput { success: out.status.success(), code: out.status.code(), message: tail(&out.stderr) })
+        Ok(CommandOutput {
+            success: out.status.success(),
+            code: out.status.code(),
+            message: tail(&out.stderr),
+        })
     }
 }
 
@@ -438,7 +488,14 @@ fn cmd_install(a: InstallArgs) -> ExitCode {
 /// Original behavior, unchanged, except the real state write takes the
 /// cooperative state lock and dry-run no longer creates the state file.
 fn cmd_install_legacy(a: InstallArgs) -> ExitCode {
-    let InstallArgs { package, allowlist, keyring, dry_run, state, .. } = a;
+    let InstallArgs {
+        package,
+        allowlist,
+        keyring,
+        dry_run,
+        state,
+        ..
+    } = a;
     let bytes = match read_json(&allowlist) {
         Ok(b) => b,
         Err(e) => {
@@ -451,23 +508,26 @@ fn cmd_install_legacy(a: InstallArgs) -> ExitCode {
         eprintln!("error: invalid allowlist: {e}");
         return ExitCode::from(2);
     }
-    let kr = match read_json(&keyring).and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string())) {
-        Ok(k) => k,
-        Err(e) => {
-            eprintln!("error: invalid keyring: {e}");
-            return ExitCode::from(2);
-        }
-    };
+    let kr =
+        match read_json(&keyring).and_then(|b| Keyring::from_json(&b).map_err(|e| e.to_string())) {
+            Ok(k) => k,
+            Err(e) => {
+                eprintln!("error: invalid keyring: {e}");
+                return ExitCode::from(2);
+            }
+        };
     // A real install takes the cooperative state lock before the state file is
     // opened (opening creates it), and holds it through the write.
     let _lock = match (&state, dry_run) {
-        (Some(sp), false) => match pos_install::lock::StateLock::acquire(sp, std::time::Duration::from_secs(5)) {
-            Ok(l) => Some(l),
-            Err(e) => {
-                eprintln!("error: {e}");
-                return ExitCode::from(2);
+        (Some(sp), false) => {
+            match pos_install::lock::StateLock::acquire(sp, std::time::Duration::from_secs(5)) {
+                Ok(l) => Some(l),
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::from(2);
+                }
             }
-        },
+        }
         _ => None,
     };
     let doc = match check_v2(&bytes, &kr, state.as_ref(), dry_run) {
@@ -502,7 +562,9 @@ fn cmd_install_legacy(a: InstallArgs) -> ExitCode {
         }
         // No installer is connected on this path (use --package-file). The
         // state file records intent only.
-        println!("install: {package} is allowed (installer not wired in this build; use --package-file)");
+        println!(
+            "install: {package} is allowed (installer not wired in this build; use --package-file)"
+        );
     }
     ExitCode::SUCCESS
 }
@@ -510,19 +572,36 @@ fn cmd_install_legacy(a: InstallArgs) -> ExitCode {
 fn cmd_sign(allowlist: PathBuf, private_key: PathBuf, out: PathBuf) -> ExitCode {
     use ed25519_dalek::{Signer, SigningKey};
     let run = || -> Result<(), String> {
-        let mut doc = pos_gate::allowlist_v2::parse_v2(&read_json(&allowlist)?).map_err(|e| e.to_string())?;
-        let pk: serde_json::Value = serde_json::from_slice(&read_json(&private_key)?).map_err(|e| e.to_string())?;
-        let hexs = pk.get("private_key_hex").and_then(|v| v.as_str()).ok_or("private_key_hex missing")?;
-        let bytes: [u8; 32] = hex::decode(hexs).map_err(|e| e.to_string())?.try_into().map_err(|_| "private key must be 32 bytes")?;
+        let mut doc =
+            pos_gate::allowlist_v2::parse_v2(&read_json(&allowlist)?).map_err(|e| e.to_string())?;
+        let pk: serde_json::Value =
+            serde_json::from_slice(&read_json(&private_key)?).map_err(|e| e.to_string())?;
+        let hexs = pk
+            .get("private_key_hex")
+            .and_then(|v| v.as_str())
+            .ok_or("private_key_hex missing")?;
+        let bytes: [u8; 32] = hex::decode(hexs)
+            .map_err(|e| e.to_string())?
+            .try_into()
+            .map_err(|_| "private key must be 32 bytes")?;
         let sk = SigningKey::from_bytes(&bytes);
         // The key must be the signed_by ring member, or the result could never verify.
-        let signer = doc.keyring.keys.iter().find(|k| k.key_id == doc.signed_by).ok_or("signed_by is not in the document keyring")?;
+        let signer = doc
+            .keyring
+            .keys
+            .iter()
+            .find(|k| k.key_id == doc.signed_by)
+            .ok_or("signed_by is not in the document keyring")?;
         if signer.public_key_hex != hex::encode(sk.verifying_key().to_bytes()) {
             return Err("private key does not match the signed_by key in the document".into());
         }
-        let payload = pos_gate::allowlist_v2::canonical_payload_bytes(&doc).map_err(|e| e.to_string())?;
+        let payload =
+            pos_gate::allowlist_v2::canonical_payload_bytes(&doc).map_err(|e| e.to_string())?;
         doc.signature_hex = hex::encode(sk.sign(&payload).to_bytes());
-        write_new_file(&out, &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?)
+        write_new_file(
+            &out,
+            &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?,
+        )
     };
     match run() {
         Ok(()) => {
@@ -589,19 +668,33 @@ fn check_new_output(out: &std::path::Path, inputs: &[&std::path::Path]) -> Resul
     let lexical = normalize_abs(out)?;
     let protected = |p: &std::path::Path| PROTECTED_DIRS.iter().any(|d| p.starts_with(d));
     if protected(&lexical) {
-        return Err(format!("{} is in a protected PassAura system directory; choose another output path", out.display()));
+        return Err(format!(
+            "{} is in a protected PassAura system directory; choose another output path",
+            out.display()
+        ));
     }
-    let parent = lexical.parent().ok_or("output path has no parent directory")?;
+    let parent = lexical
+        .parent()
+        .ok_or("output path has no parent directory")?;
     let name = lexical.file_name().ok_or("output path has no file name")?;
     let resolved_parent = std::fs::canonicalize(parent)
         .map_err(|e| format!("output directory {} is not usable: {e}", parent.display()))?;
     let resolved = resolved_parent.join(name);
-    let canon_protected: Vec<PathBuf> = PROTECTED_DIRS.iter().filter_map(|d| std::fs::canonicalize(d).ok()).collect();
+    let canon_protected: Vec<PathBuf> = PROTECTED_DIRS
+        .iter()
+        .filter_map(|d| std::fs::canonicalize(d).ok())
+        .collect();
     if protected(&resolved) || canon_protected.iter().any(|d| resolved.starts_with(d)) {
-        return Err(format!("{} resolves into a protected PassAura system directory", out.display()));
+        return Err(format!(
+            "{} resolves into a protected PassAura system directory",
+            out.display()
+        ));
     }
     if std::fs::symlink_metadata(&lexical).is_ok() {
-        return Err(format!("{} already exists; refusing to overwrite", out.display()));
+        return Err(format!(
+            "{} already exists; refusing to overwrite",
+            out.display()
+        ));
     }
     for i in inputs {
         if let Ok(ci) = std::fs::canonicalize(i) {
@@ -613,21 +706,49 @@ fn check_new_output(out: &std::path::Path, inputs: &[&std::path::Path]) -> Resul
     Ok(())
 }
 
-fn cmd_migrate(from_v1: PathBuf, trusted_key: PathBuf, sha256_map: PathBuf, out: PathBuf) -> ExitCode {
+fn cmd_migrate(
+    from_v1: PathBuf,
+    trusted_key: PathBuf,
+    sha256_map: PathBuf,
+    out: PathBuf,
+) -> ExitCode {
     let run = || -> Result<usize, String> {
         // Check the destination first so a bad --out never leads to a read or a write.
-        check_new_output(&out, &[from_v1.as_path(), trusted_key.as_path(), sha256_map.as_path()])?;
+        check_new_output(
+            &out,
+            &[
+                from_v1.as_path(),
+                trusted_key.as_path(),
+                sha256_map.as_path(),
+            ],
+        )?;
         let bytes = read_json(&from_v1)?;
-        let kr = Keyring::from_json(&read_json(&trusted_key)?).map_err(|e| format!("invalid keyring: {e}"))?;
-        let hashes = pos_gate::migrate::parse_sha256_map(&read_json(&sha256_map)?).map_err(|e| e.to_string())?;
-        check_new_output(&out, &[from_v1.as_path(), trusted_key.as_path(), sha256_map.as_path()])?;
-        let v2 = pos_gate::migrate::migrate_text_v1(&bytes, &kr, &hashes, now_secs()).map_err(|e| e.to_string())?;
-        write_new_file(&out, &serde_json::to_vec_pretty(&v2).map_err(|e| e.to_string())?)?;
+        let kr = Keyring::from_json(&read_json(&trusted_key)?)
+            .map_err(|e| format!("invalid keyring: {e}"))?;
+        let hashes = pos_gate::migrate::parse_sha256_map(&read_json(&sha256_map)?)
+            .map_err(|e| e.to_string())?;
+        check_new_output(
+            &out,
+            &[
+                from_v1.as_path(),
+                trusted_key.as_path(),
+                sha256_map.as_path(),
+            ],
+        )?;
+        let v2 = pos_gate::migrate::migrate_text_v1(&bytes, &kr, &hashes, now_secs())
+            .map_err(|e| e.to_string())?;
+        write_new_file(
+            &out,
+            &serde_json::to_vec_pretty(&v2).map_err(|e| e.to_string())?,
+        )?;
         Ok(v2.entries.len())
     };
     match run() {
         Ok(n) => {
-            println!("wrote {} ({n} entries, UNSIGNED v2, sequence 0)", out.display());
+            println!(
+                "wrote {} ({n} entries, UNSIGNED v2, sequence 0)",
+                out.display()
+            );
             println!("note: hashes came from the operator's map; only their format was checked.");
             println!("next: review times/key window, then run `pos-cli sign` before use.");
             ExitCode::SUCCESS
@@ -671,7 +792,10 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
     // Never overwrite existing keys: a rerun must not destroy a private key.
     for p in [&keyring_path, &private_path] {
         if p.exists() {
-            eprintln!("error: {} already exists; refusing to overwrite", p.display());
+            eprintln!(
+                "error: {} already exists; refusing to overwrite",
+                p.display()
+            );
             return ExitCode::from(2);
         }
     }
@@ -687,11 +811,19 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
         let _ = secret;
         o.open(path)?.write_all(bytes)
     }
-    if let Err(e) = write_new(&keyring_path, &serde_json::to_vec_pretty(&keyring).unwrap_or_default(), false) {
+    if let Err(e) = write_new(
+        &keyring_path,
+        &serde_json::to_vec_pretty(&keyring).unwrap_or_default(),
+        false,
+    ) {
         eprintln!("error: cannot write {}: {e}", keyring_path.display());
         return ExitCode::from(2);
     }
-    if let Err(e) = write_new(&private_path, &serde_json::to_vec_pretty(&private).unwrap_or_default(), true) {
+    if let Err(e) = write_new(
+        &private_path,
+        &serde_json::to_vec_pretty(&private).unwrap_or_default(),
+        true,
+    ) {
         eprintln!("error: cannot write {}: {e}", private_path.display());
         return ExitCode::from(2);
     }
@@ -711,17 +843,50 @@ fn main() -> ExitCode {
             // except --help/--version, which clap marks with use_stderr()=false.
             let usage = e.use_stderr();
             let _ = e.print();
-            return if usage { ExitCode::from(4) } else { ExitCode::SUCCESS };
+            return if usage {
+                ExitCode::from(4)
+            } else {
+                ExitCode::SUCCESS
+            };
         }
     };
 
     match cli.cmd {
-        Cmd::Verify { allowlist, keyring, state } => cmd_verify(allowlist, keyring, state),
-        Cmd::Install { package, allowlist, keyring, dry_run, state, package_file, audit_log, recover } => {
-            cmd_install(InstallArgs { package, allowlist, keyring, dry_run, state, package_file, audit_log, recover })
-        }
-        Cmd::AllowlistMigrate { from_v1, trusted_key, sha256_map, out } => cmd_migrate(from_v1, trusted_key, sha256_map, out),
-        Cmd::Sign { allowlist, private_key, out } => cmd_sign(allowlist, private_key, out),
+        Cmd::Verify {
+            allowlist,
+            keyring,
+            state,
+        } => cmd_verify(allowlist, keyring, state),
+        Cmd::Install {
+            package,
+            allowlist,
+            keyring,
+            dry_run,
+            state,
+            package_file,
+            audit_log,
+            recover,
+        } => cmd_install(InstallArgs {
+            package,
+            allowlist,
+            keyring,
+            dry_run,
+            state,
+            package_file,
+            audit_log,
+            recover,
+        }),
+        Cmd::AllowlistMigrate {
+            from_v1,
+            trusted_key,
+            sha256_map,
+            out,
+        } => cmd_migrate(from_v1, trusted_key, sha256_map, out),
+        Cmd::Sign {
+            allowlist,
+            private_key,
+            out,
+        } => cmd_sign(allowlist, private_key, out),
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Audit { action } => cmd_audit(action),
     }
@@ -753,7 +918,9 @@ mod tests {
         let fresh = dir.join("new.json");
         assert!(check_new_output(&fresh, &[]).is_ok());
         std::fs::write(&fresh, b"x").unwrap();
-        assert!(check_new_output(&fresh, &[]).unwrap_err().contains("already exists"));
+        assert!(check_new_output(&fresh, &[])
+            .unwrap_err()
+            .contains("already exists"));
         assert!(check_new_output(&dir.join("missing-dir/new.json"), &[]).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -778,7 +945,10 @@ mod tests {
         }
         impl Fake {
             fn new(script: Vec<Result<CommandOutput, String>>) -> Self {
-                Fake { calls: Default::default(), script: Arc::new(Mutex::new(script)) }
+                Fake {
+                    calls: Default::default(),
+                    script: Arc::new(Mutex::new(script)),
+                }
             }
             fn n(&self) -> usize {
                 self.calls.lock().unwrap().len()
@@ -795,10 +965,18 @@ mod tests {
             }
         }
         fn ok() -> Result<CommandOutput, String> {
-            Ok(CommandOutput { success: true, code: Some(0), message: String::new() })
+            Ok(CommandOutput {
+                success: true,
+                code: Some(0),
+                message: String::new(),
+            })
         }
         fn exit(code: i32) -> Result<CommandOutput, String> {
-            Ok(CommandOutput { success: false, code: Some(code), message: "dpkg: error".into() })
+            Ok(CommandOutput {
+                success: false,
+                code: Some(code),
+                message: "dpkg: error".into(),
+            })
         }
 
         struct Env {
@@ -806,7 +984,8 @@ mod tests {
         }
         impl Env {
             fn new(tag: &str) -> Env {
-                let dir = std::env::temp_dir().join(format!("pos-cli-flow-{}-{tag}", std::process::id()));
+                let dir =
+                    std::env::temp_dir().join(format!("pos-cli-flow-{}-{tag}", std::process::id()));
                 let _ = std::fs::remove_dir_all(&dir);
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(dir.join("p.deb"), CONTENT).unwrap();
@@ -878,7 +1057,10 @@ mod tests {
         fn success_runs_dpkg_once_on_the_staged_file_and_records_sequence() {
             let e = Env::new("ok");
             let f = Fake::new(vec![ok()]);
-            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::SUCCESS));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, None))),
+                code(ExitCode::SUCCESS)
+            );
             assert_eq!(e.seq(), Some(4));
             assert!(!e.journal());
             let calls = f.calls.lock().unwrap();
@@ -891,9 +1073,18 @@ mod tests {
         fn dry_run_runs_nothing_and_creates_no_state_audit_journal_or_lock() {
             let e = Env::new("dry");
             let f = Fake::new(vec![]);
-            assert_eq!(code(run_pipeline_install(f.clone(), e.args(true, None))), code(ExitCode::SUCCESS));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(true, None))),
+                code(ExitCode::SUCCESS)
+            );
             assert_eq!(f.n(), 0);
-            for n in ["state.json", "audit.log", "state.json.lock", "state.json.install-journal", "state.json.stage"] {
+            for n in [
+                "state.json",
+                "audit.log",
+                "state.json.lock",
+                "state.json.install-journal",
+                "state.json.stage",
+            ] {
                 assert!(!e.dir.join(n).exists(), "{n} must not exist");
             }
         }
@@ -902,7 +1093,10 @@ mod tests {
         fn nonzero_exit_exit2_sequence_unchanged() {
             let e = Env::new("nz");
             let f = Fake::new(vec![exit(100)]);
-            assert_eq!(code(run_pipeline_install(f, e.args(false, None))), code(ExitCode::from(2)));
+            assert_eq!(
+                code(run_pipeline_install(f, e.args(false, None))),
+                code(ExitCode::from(2))
+            );
             assert_ne!(e.seq(), Some(4));
             assert!(!e.journal());
         }
@@ -910,8 +1104,13 @@ mod tests {
         #[test]
         fn proven_not_started_is_definite_failure() {
             let e = Env::new("ns");
-            let f = Fake::new(vec![Err(format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed"))]);
-            assert_eq!(code(run_pipeline_install(f, e.args(false, None))), code(ExitCode::from(2)));
+            let f = Fake::new(vec![Err(format!(
+                "{RUNNER_NOT_STARTED_PREFIX}spawn failed"
+            ))]);
+            assert_eq!(
+                code(run_pipeline_install(f, e.args(false, None))),
+                code(ExitCode::from(2))
+            );
             assert!(!e.journal());
             assert_ne!(e.seq(), Some(4));
         }
@@ -920,15 +1119,24 @@ mod tests {
         fn unknown_outcome_blocks_then_retry_succeeds() {
             let e = Env::new("unk");
             let f = Fake::new(vec![Err("wait/read failed after spawn: x".into()), ok()]);
-            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::from(2)));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, None))),
+                code(ExitCode::from(2))
+            );
             assert!(e.journal());
             assert_ne!(e.seq(), Some(4));
             // A plain install is refused and runs nothing.
-            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::from(2)));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, None))),
+                code(ExitCode::from(2))
+            );
             assert_eq!(f.n(), 1);
             // Explicit retry runs once more and commits.
             assert_eq!(
-                code(run_pipeline_install(f.clone(), e.args(false, Some(RecoverMode::Retry)))),
+                code(run_pipeline_install(
+                    f.clone(),
+                    e.args(false, Some(RecoverMode::Retry))
+                )),
                 code(ExitCode::SUCCESS)
             );
             assert_eq!(f.n(), 2);
@@ -943,14 +1151,20 @@ mod tests {
             let _ = run_pipeline_install(f.clone(), e.args(false, None));
             assert!(e.journal());
             assert_eq!(
-                code(run_pipeline_install(f.clone(), e.args(false, Some(RecoverMode::Abandon)))),
+                code(run_pipeline_install(
+                    f.clone(),
+                    e.args(false, Some(RecoverMode::Abandon))
+                )),
                 code(ExitCode::SUCCESS)
             );
             assert_eq!(f.n(), 1);
             assert!(!e.journal());
             assert_ne!(e.seq(), Some(4));
             // New install is allowed after abandon.
-            assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, None))), code(ExitCode::SUCCESS));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), e.args(false, None))),
+                code(ExitCode::SUCCESS)
+            );
             assert_eq!(e.seq(), Some(4));
         }
 
@@ -959,7 +1173,10 @@ mod tests {
             let e = Env::new("nj");
             let f = Fake::new(vec![]);
             for m in [RecoverMode::Retry, RecoverMode::Abandon] {
-                assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, Some(m)))), code(ExitCode::from(2)));
+                assert_eq!(
+                    code(run_pipeline_install(f.clone(), e.args(false, Some(m)))),
+                    code(ExitCode::from(2))
+                );
             }
             assert_eq!(f.n(), 0);
         }
@@ -975,12 +1192,27 @@ mod tests {
             b.truncate(b.len() - 3);
             std::fs::write(&jp, &b).unwrap();
             for m in [None, Some(RecoverMode::Retry), Some(RecoverMode::Abandon)] {
-                assert_eq!(code(run_pipeline_install(f.clone(), e.args(false, m))), code(ExitCode::from(2)));
+                assert_eq!(
+                    code(run_pipeline_install(f.clone(), e.args(false, m))),
+                    code(ExitCode::from(2))
+                );
             }
             assert_eq!(f.n(), 1, "nothing may run");
-            assert_eq!(std::fs::read(&jp).unwrap(), b, "journal must be left untouched");
-            let msg = format!("{}", pos_install::InstallError::Journal(pos_install::journal::JournalError::Corrupt("x".into())));
-            assert!(msg.contains("dpkg --audit") && msg.contains("Do NOT delete"), "{msg}");
+            assert_eq!(
+                std::fs::read(&jp).unwrap(),
+                b,
+                "journal must be left untouched"
+            );
+            let msg = format!(
+                "{}",
+                pos_install::InstallError::Journal(pos_install::journal::JournalError::Corrupt(
+                    "x".into()
+                ))
+            );
+            assert!(
+                msg.contains("dpkg --audit") && msg.contains("Do NOT delete"),
+                "{msg}"
+            );
         }
 
         #[test]
@@ -989,11 +1221,23 @@ mod tests {
             let f = Fake::new(vec![]);
             let mut a = e.args(false, None);
             a.audit_log = None;
-            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(4)));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), a)),
+                code(ExitCode::from(4))
+            );
             let mut a = e.args(false, Some(RecoverMode::Abandon));
             a.state = None;
-            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(4)));
-            assert_eq!(code(run_pipeline_install(f, e.args(true, Some(RecoverMode::Retry)))), code(ExitCode::from(4)));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), a)),
+                code(ExitCode::from(4))
+            );
+            assert_eq!(
+                code(run_pipeline_install(
+                    f,
+                    e.args(true, Some(RecoverMode::Retry))
+                )),
+                code(ExitCode::from(4))
+            );
         }
 
         #[test]
@@ -1002,7 +1246,10 @@ mod tests {
             let f = Fake::new(vec![]);
             let mut a = e.args(false, None);
             a.package = "nmap".into();
-            assert_eq!(code(run_pipeline_install(f.clone(), a)), code(ExitCode::from(3)));
+            assert_eq!(
+                code(run_pipeline_install(f.clone(), a)),
+                code(ExitCode::from(3))
+            );
             assert_eq!(f.n(), 0);
         }
     }

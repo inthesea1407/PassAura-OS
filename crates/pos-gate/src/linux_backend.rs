@@ -81,11 +81,7 @@ pub const RUNNER_NOT_STARTED_PREFIX: &str = "not started: ";
 
 /// Executes one program with argv. Implementations must not invoke a shell.
 pub trait CommandRunner {
-    fn run(
-        &mut self,
-        program: &str,
-        args: &[String],
-    ) -> Result<CommandOutput, String>;
+    fn run(&mut self, program: &str, args: &[String]) -> Result<CommandOutput, String>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -149,9 +145,7 @@ impl<'a> VerifiedAllowlist<'a> {
     }
 
     fn contains(&self, package: &str) -> bool {
-        self.doc.entries.iter().any(|entry| {
-            entry.name == package
-        })
+        self.doc.entries.iter().any(|entry| entry.name == package)
     }
 }
 
@@ -169,10 +163,9 @@ pub fn valid_package_name(package: &str) -> bool {
         return false;
     }
 
-    package.chars().all(|c| {
-        c.is_ascii_alphanumeric()
-            || matches!(c, '+' | '.' | '_' | '-')
-    })
+    package
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '_' | '-'))
 }
 
 /// Flatpak remotes: ASCII alphanumeric, underscore, or hyphen.
@@ -181,9 +174,9 @@ pub fn valid_flatpak_remote(remote: &str) -> bool {
     !remote.is_empty()
         && remote.len() <= 64
         && !remote.starts_with('-')
-        && remote.chars().all(|c| {
-            c.is_ascii_alphanumeric() || matches!(c, '_' | '-')
-        })
+        && remote
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
 }
 
 /// Flatpak application IDs:
@@ -240,9 +233,16 @@ fn run_command_ex<R: CommandRunner>(
         .run(&command.program, &command.args)
         .map_err(|message| {
             if typed_not_started && message.starts_with(RUNNER_NOT_STARTED_PREFIX) {
-                PackageBackendError::RunnerNotStarted { program: command.program.clone(), message }
+                PackageBackendError::RunnerNotStarted {
+                    program: command.program.clone(),
+                    message,
+                }
             } else {
-                PackageBackendError::RunnerFailure { program: command.program.clone(), code: None, message }
+                PackageBackendError::RunnerFailure {
+                    program: command.program.clone(),
+                    code: None,
+                    message,
+                }
             }
         })?;
 
@@ -338,7 +338,9 @@ impl<R: CommandRunner> PackageBackend for AptDpkgBackend<R> {
         }
         // Absolute path only, so it can never be read as an option, and the
         // `--` separator is passed as well. Non-UTF-8 paths are refused.
-        let path = staged.to_str().ok_or(PackageBackendError::InvalidStagedPath)?;
+        let path = staged
+            .to_str()
+            .ok_or(PackageBackendError::InvalidStagedPath)?;
         if !staged.is_absolute() || path.contains('\0') {
             return Err(PackageBackendError::InvalidStagedPath);
         }

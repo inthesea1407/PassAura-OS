@@ -7,7 +7,10 @@ use std::net::IpAddr;
 #[ignore = "used by the netpolicy-nft CI job"]
 fn write_rule_files_for_ci() {
     let dir = std::env::var("POS_NFT_OUT_DIR").expect("POS_NFT_OUT_DIR");
-    let uid: u32 = std::env::var("POS_NFT_UID").expect("POS_NFT_UID").parse().unwrap();
+    let uid: u32 = std::env::var("POS_NFT_UID")
+        .expect("POS_NFT_UID")
+        .parse()
+        .unwrap();
     let w = |name: &str, body: String| std::fs::write(format!("{dir}/{name}"), body).unwrap();
 
     w("deny.nft", render_nft(&Policy::new(uid)).unwrap());
@@ -17,7 +20,11 @@ fn write_rule_files_for_ci() {
     w("lo.nft", render_nft(&lo).unwrap());
 
     let mut full = Policy::new(uid);
-    full.allow = vec![parse_target("203.0.113.0/24").unwrap(), parse_target("2001:db8::/32").unwrap(), parse_target("198.51.100.7").unwrap()];
+    full.allow = vec![
+        parse_target("203.0.113.0/24").unwrap(),
+        parse_target("2001:db8::/32").unwrap(),
+        parse_target("198.51.100.7").unwrap(),
+    ];
     full.dns_resolver = Some("9.9.9.9".parse::<IpAddr>().unwrap());
     full.allow_loopback = true;
     full.allow_ipv6_nd = true;
@@ -29,5 +36,13 @@ fn write_rule_files_for_ci() {
     w("full6.nft", render_nft(&full6).unwrap());
 
     w("remove.nft", render_nft_remove());
-    w("unit.service", render_systemd_unit("/usr/sbin/nft", "/etc/pos/netpolicy.nft", "/etc/pos/netpolicy-remove.nft").unwrap());
+    w(
+        "unit.service",
+        render_systemd_unit(
+            "/usr/sbin/nft",
+            "/etc/pos/netpolicy.nft",
+            "/etc/pos/netpolicy-remove.nft",
+        )
+        .unwrap(),
+    );
 }

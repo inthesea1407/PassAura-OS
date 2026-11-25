@@ -56,8 +56,10 @@ fn layer_keys(dek: &[u8; 32]) -> Result<(Key32, Key32), CryptoError> {
     let hk = Hkdf::<Sha256>::new(None, dek);
     let mut a = Zeroizing::new([0u8; 32]);
     let mut c = Zeroizing::new([0u8; 32]);
-    hk.expand(b"pos-crypto-suites/L1/aes-256-gcm", &mut *a).map_err(|_| CryptoError::Primitive("hkdf"))?;
-    hk.expand(b"pos-crypto-suites/L1/xchacha20-poly1305", &mut *c).map_err(|_| CryptoError::Primitive("hkdf"))?;
+    hk.expand(b"pos-crypto-suites/L1/aes-256-gcm", &mut *a)
+        .map_err(|_| CryptoError::Primitive("hkdf"))?;
+    hk.expand(b"pos-crypto-suites/L1/xchacha20-poly1305", &mut *c)
+        .map_err(|_| CryptoError::Primitive("hkdf"))?;
     Ok((a, c))
 }
 
@@ -74,7 +76,12 @@ fn x_open(key: &[u8; 32], nonce: &[u8; 24], aad: &[u8], ct: &[u8]) -> Result<Vec
 }
 
 /// Encrypts `plaintext` under `dek` with a fresh random nonce per layer.
-pub fn seal(suite: Suite, dek: &[u8; 32], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn seal(
+    suite: Suite,
+    dek: &[u8; 32],
+    aad: &[u8],
+    plaintext: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
     let aad = full_aad(suite, aad);
     let mut out = vec![suite.id()];
     match suite {
@@ -89,7 +96,13 @@ pub fn seal(suite: Suite, dek: &[u8; 32], aad: &[u8], plaintext: &[u8]) -> Resul
             let n_x = random_bytes::<24>()?;
             let inner = Aes256Gcm::new_from_slice(&*ka)
                 .map_err(|_| CryptoError::Primitive("aes key"))?
-                .encrypt(GcmNonce::from_slice(&n_a), Payload { msg: plaintext, aad: &aad })
+                .encrypt(
+                    GcmNonce::from_slice(&n_a),
+                    Payload {
+                        msg: plaintext,
+                        aad: &aad,
+                    },
+                )
                 .map_err(|_| CryptoError::Primitive("aes-gcm seal"))?;
             out.extend_from_slice(&n_a);
             out.extend_from_slice(&n_x);
@@ -100,7 +113,12 @@ pub fn seal(suite: Suite, dek: &[u8; 32], aad: &[u8], plaintext: &[u8]) -> Resul
 }
 
 /// Decrypts a blob. `expected` is the suite the caller requires; any other suite id fails.
-pub fn open(expected: Suite, dek: &[u8; 32], aad: &[u8], blob: &[u8]) -> Result<Vec<u8>, CryptoError> {
+pub fn open(
+    expected: Suite,
+    dek: &[u8; 32],
+    aad: &[u8],
+    blob: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
     if blob.first().copied() != Some(expected.id()) {
         return Err(CryptoError::Open);
     }
@@ -121,10 +139,21 @@ pub fn open(expected: Suite, dek: &[u8; 32], aad: &[u8], blob: &[u8]) -> Result<
             let (ka, kc) = layer_keys(dek)?;
             let (n_a, rest) = body.split_at(12);
             let (n_x, ct) = rest.split_at(24);
-            let inner = x_open(&kc, n_x.try_into().map_err(|_| CryptoError::Open)?, &aad, ct)?;
+            let inner = x_open(
+                &kc,
+                n_x.try_into().map_err(|_| CryptoError::Open)?,
+                &aad,
+                ct,
+            )?;
             Aes256Gcm::new_from_slice(&*ka)
                 .map_err(|_| CryptoError::Open)?
-                .decrypt(GcmNonce::from_slice(n_a), Payload { msg: &inner, aad: &aad })
+                .decrypt(
+                    GcmNonce::from_slice(n_a),
+                    Payload {
+                        msg: &inner,
+                        aad: &aad,
+                    },
+                )
                 .map_err(|_| CryptoError::Open)
         }
     }

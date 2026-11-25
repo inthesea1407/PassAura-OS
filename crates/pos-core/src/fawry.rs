@@ -36,7 +36,10 @@ pub fn expected_signature(n: &FawryNotification, secure_key: &str) -> String {
         n.payment_reference_number,
         secure_key
     );
-    Sha256::digest(s.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    Sha256::digest(s.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Constant-time comparison of the received signature (case-insensitive hex).
@@ -50,7 +53,10 @@ pub fn verify(n: &FawryNotification, secure_key: &str, received: &str) -> bool {
     if got.len() != want.len() {
         return false;
     }
-    want.bytes().zip(got.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0
+    want.bytes()
+        .zip(got.bytes())
+        .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
 }
 
 /// Only a PAID notification for exactly the expected amount may become a payment record.

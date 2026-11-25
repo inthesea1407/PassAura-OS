@@ -40,10 +40,7 @@ impl std::error::Error for PolicyError {}
 const ADMIN_SID: &str = "S-1-5-32-544";
 
 fn valid_sha256(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_hexdigit())
+    value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 fn validate_entries(entries: &[PackageAllowlistEntry]) -> Result<(), PolicyError> {
@@ -55,10 +52,7 @@ fn validate_entries(entries: &[PackageAllowlistEntry]) -> Result<(), PolicyError
             return Err(PolicyError("empty publisher".into()));
         }
         if !valid_sha256(&entry.sha256) {
-            return Err(PolicyError(format!(
-                "invalid SHA-256 for {}",
-                entry.name
-            )));
+            return Err(PolicyError(format!("invalid SHA-256 for {}", entry.name)));
         }
     }
     Ok(())
@@ -76,10 +70,7 @@ pub fn xml_escape(value: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            '\u{0}'..='\u{8}'
-            | '\u{B}'
-            | '\u{C}'
-            | '\u{E}'..='\u{1F}' => out.push('\u{FFFD}'),
+            '\u{0}'..='\u{8}' | '\u{B}' | '\u{C}' | '\u{E}'..='\u{1F}' => out.push('\u{FFFD}'),
             _ => out.push(ch),
         }
     }
@@ -99,8 +90,7 @@ fn hex_sha256_to_base64(hex: &str) -> Result<String, PolicyError> {
         .collect::<Result<_, _>>()
         .map_err(|_| PolicyError("invalid SHA-256".into()))?;
 
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let mut out = String::new();
     for chunk in bytes.chunks(3) {
@@ -152,10 +142,7 @@ fn hash_rule(
     ))
 }
 
-fn packaged_app_rule(
-    index: usize,
-    entry: &PackageAllowlistEntry,
-) -> String {
+fn packaged_app_rule(index: usize, entry: &PackageAllowlistEntry) -> String {
     format!(
         r#"<Rule Id="POS-APPX-{}" Name="{}" Description="POS packaged-app publisher allowlist" UserOrGroupSid="S-1-1-0" Action="Allow"><Conditions><PublisherCondition PublisherName="{}" ProductName="{}" BinaryName="*"><BinaryVersionRange LowSection="0.0.0.0" HighSection="*" /></PublisherCondition></Conditions></Rule>"#,
         index,
@@ -170,20 +157,16 @@ fn packaged_app_rule(
 /// Entries are sorted by (name, publisher, hash).
 /// Unmatched applications are denied by AppLocker default behavior
 /// because no broad non-admin Allow rules are generated.
-pub fn generate_applocker_xml(
-    entries: &[PackageAllowlistEntry],
-) -> Result<String, PolicyError> {
+pub fn generate_applocker_xml(entries: &[PackageAllowlistEntry]) -> Result<String, PolicyError> {
     validate_entries(entries)?;
 
     let mut sorted = entries.to_vec();
     sorted.sort_by(|a, b| {
-        (&a.name, &a.publisher, &a.sha256)
-            .cmp(&(&b.name, &b.publisher, &b.sha256))
+        (&a.name, &a.publisher, &a.sha256).cmp(&(&b.name, &b.publisher, &b.sha256))
     });
 
-    let mut xml = String::from(
-        r#"<?xml version="1.0" encoding="UTF-8"?><AppLockerPolicy Version="1">"#,
-    );
+    let mut xml =
+        String::from(r#"<?xml version="1.0" encoding="UTF-8"?><AppLockerPolicy Version="1">"#);
 
     for collection in [
         RuleCollection::Exe,
@@ -219,8 +202,7 @@ pub fn generate_applocker_xml(
 // Credential-manager allowlist policy writer
 // ---------------------------------------------------------------------
 
-pub const CREDENTIAL_POLICY_PATH: &str =
-    r"Software\Policies\PassAuraOS\CredentialManager";
+pub const CREDENTIAL_POLICY_PATH: &str = r"Software\Policies\PassAuraOS\CredentialManager";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RegistryChange {
@@ -263,9 +245,7 @@ pub struct WriteReport {
     pub applied: bool,
 }
 
-fn build_credential_changes(
-    allowlist: &[String],
-) -> Result<Vec<RegistryChange>, PolicyError> {
+fn build_credential_changes(allowlist: &[String]) -> Result<Vec<RegistryChange>, PolicyError> {
     let mut values = BTreeSet::new();
 
     for name in allowlist {
@@ -302,8 +282,8 @@ pub fn write_credential_allowlist<W: RegistryWriter>(
     mode: WriteMode,
     writer: &mut W,
 ) -> Result<WriteReport, RegistryWriteError> {
-    let planned = build_credential_changes(allowlist)
-        .map_err(|e| RegistryWriteError(e.to_string()))?;
+    let planned =
+        build_credential_changes(allowlist).map_err(|e| RegistryWriteError(e.to_string()))?;
 
     if mode == WriteMode::DryRun {
         return Ok(WriteReport {
@@ -479,12 +459,7 @@ mod tests {
         let allowlist = vec!["VaultA".into(), "VaultB".into()];
         let mut fake = FakeRegistry::default();
 
-        let report = write_credential_allowlist(
-            &allowlist,
-            WriteMode::DryRun,
-            &mut fake,
-        )
-        .unwrap();
+        let report = write_credential_allowlist(&allowlist, WriteMode::DryRun, &mut fake).unwrap();
 
         assert!(!report.applied);
         assert_eq!(report.planned.len(), 2);
@@ -496,12 +471,7 @@ mod tests {
         let allowlist = vec!["VaultB".into(), "VaultA".into()];
         let mut fake = FakeRegistry::default();
 
-        let report = write_credential_allowlist(
-            &allowlist,
-            WriteMode::Apply,
-            &mut fake,
-        )
-        .unwrap();
+        let report = write_credential_allowlist(&allowlist, WriteMode::Apply, &mut fake).unwrap();
 
         assert!(report.applied);
         assert_eq!(fake.writes, report.planned);
@@ -510,19 +480,10 @@ mod tests {
 
     #[test]
     fn registry_plan_is_sorted_and_deduplicated() {
-        let allowlist = vec![
-            "VaultB".into(),
-            "VaultA".into(),
-            "VaultB".into(),
-        ];
+        let allowlist = vec!["VaultB".into(), "VaultA".into(), "VaultB".into()];
         let mut fake = FakeRegistry::default();
 
-        let report = write_credential_allowlist(
-            &allowlist,
-            WriteMode::DryRun,
-            &mut fake,
-        )
-        .unwrap();
+        let report = write_credential_allowlist(&allowlist, WriteMode::DryRun, &mut fake).unwrap();
 
         assert_eq!(report.planned.len(), 2);
         assert_eq!(report.planned[0].value, "VaultA");
@@ -534,12 +495,7 @@ mod tests {
         let allowlist = vec!["Vault\nInjected".into()];
         let mut fake = FakeRegistry::default();
 
-        assert!(write_credential_allowlist(
-            &allowlist,
-            WriteMode::DryRun,
-            &mut fake
-        )
-        .is_err());
+        assert!(write_credential_allowlist(&allowlist, WriteMode::DryRun, &mut fake).is_err());
 
         assert!(fake.writes.is_empty());
     }

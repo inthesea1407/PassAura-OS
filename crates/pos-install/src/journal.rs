@@ -33,7 +33,9 @@ pub enum Step {
     },
     Verified,
     Fetched,
-    Staged { file: String },
+    Staged {
+        file: String,
+    },
     /// Written and synced BEFORE the install command runs.
     InstallStarted,
     /// Written and synced AFTER the command reported success.
@@ -41,9 +43,15 @@ pub enum Step {
     /// The rollback state now holds this attempt's sequence.
     SeqPersisted,
     Committed,
-    AuditIntent { record: AuditRecord },
-    AuditWritten { seq: u64 },
-    Failed { kind: FailKind },
+    AuditIntent {
+        record: AuditRecord,
+    },
+    AuditWritten {
+        seq: u64,
+    },
+    Failed {
+        kind: FailKind,
+    },
     Aborted,
     AbandonRequested,
     Abandoned,
@@ -136,20 +144,36 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
         if !validate_id(&e.attempt) {
             return corrupt(format!("line {}: bad attempt id", i + 1));
         }
-        if let Step::Begun { package, sequence, digest, sha256, source, parent } = &e.step {
+        if let Step::Begun {
+            package,
+            sequence,
+            digest,
+            sha256,
+            source,
+            parent,
+        } = &e.step
+        {
             if attempts.iter().any(|a| a.id == e.attempt) {
                 return corrupt(format!("line {}: duplicate attempt id", i + 1));
             }
             match (attempts.last(), parent) {
                 (None, None) => {}
-                (None, Some(_)) => return corrupt(format!("line {}: first attempt has a parent", i + 1)),
-                (Some(_), None) => return corrupt(format!("line {}: later attempt without parent", i + 1)),
+                (None, Some(_)) => {
+                    return corrupt(format!("line {}: first attempt has a parent", i + 1))
+                }
+                (Some(_), None) => {
+                    return corrupt(format!("line {}: later attempt without parent", i + 1))
+                }
                 (Some(prev), Some(p)) => {
                     if &prev.id != p {
-                        return corrupt(format!("line {}: parent is not the previous attempt", i + 1));
+                        return corrupt(format!(
+                            "line {}: parent is not the previous attempt",
+                            i + 1
+                        ));
                     }
-                    let indeterminate =
-                        prev.rank == R_STARTED && prev.terminal.is_none() && !prev.abandon_requested;
+                    let indeterminate = prev.rank == R_STARTED
+                        && prev.terminal.is_none()
+                        && !prev.abandon_requested;
                     let aborted_retry = prev.terminal == Some(Terminal::Aborted)
                         && prev.parent.is_some()
                         && prev.rank < R_STARTED
@@ -161,7 +185,10 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
                         ));
                     }
                     if prev.pending_audit.is_some() {
-                        return corrupt(format!("line {}: previous attempt has an unwritten audit", i + 1));
+                        return corrupt(format!(
+                            "line {}: previous attempt has an unwritten audit",
+                            i + 1
+                        ));
                     }
                 }
             }
@@ -186,7 +213,10 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
             return corrupt(format!("line {}: step before any attempt began", i + 1));
         };
         if a.id != e.attempt {
-            return corrupt(format!("line {}: step for a different or older attempt", i + 1));
+            return corrupt(format!(
+                "line {}: step for a different or older attempt",
+                i + 1
+            ));
         }
         match &e.step {
             Step::Begun { .. } => unreachable!(),
@@ -197,7 +227,12 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
             }
             Step::AuditWritten { seq } => match a.pending_audit.take() {
                 Some(r) if r.seq == *seq => a.written_audits.push(r),
-                _ => return corrupt(format!("line {}: audit_written without matching intent", i + 1)),
+                _ => {
+                    return corrupt(format!(
+                        "line {}: audit_written without matching intent",
+                        i + 1
+                    ))
+                }
             },
             Step::Failed { kind } => {
                 if a.terminal.is_some() || a.abandon_requested {
@@ -214,7 +249,10 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
             Step::AbandonRequested => {
                 let aborted_retry = a.terminal == Some(Terminal::Aborted) && a.parent.is_some();
                 if (a.terminal.is_some() && !aborted_retry) || a.abandon_requested {
-                    return corrupt(format!("line {}: duplicate or late abandon_requested", i + 1));
+                    return corrupt(format!(
+                        "line {}: duplicate or late abandon_requested",
+                        i + 1
+                    ));
                 }
                 a.abandon_requested = true;
             }
@@ -245,7 +283,10 @@ pub fn fold(entries: &[Entry]) -> Result<Vec<Attempt>, JournalError> {
                     _ => unreachable!(),
                 };
                 if rank != a.rank + 1 {
-                    return corrupt(format!("line {}: step out of order, skipped or duplicated", i + 1));
+                    return corrupt(format!(
+                        "line {}: step out of order, skipped or duplicated",
+                        i + 1
+                    ));
                 }
                 a.rank = rank;
                 if staged.is_some() {
@@ -288,7 +329,9 @@ impl Journal {
     pub fn for_state(state_path: &Path) -> Journal {
         let mut s = state_path.as_os_str().to_owned();
         s.push(".install-journal");
-        Journal { path: PathBuf::from(s) }
+        Journal {
+            path: PathBuf::from(s),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -320,9 +363,12 @@ impl Journal {
         entries.push(entry.clone());
         fold(&entries)?;
         let existed = self.path.exists();
-        let mut f = OpenOptions::new().create(true).append(true).open(&self.path)?;
-        let mut line = serde_json::to_string(entry)
-            .map_err(|e| JournalError::Corrupt(e.to_string()))?;
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        let mut line =
+            serde_json::to_string(entry).map_err(|e| JournalError::Corrupt(e.to_string()))?;
         line.push('\n');
         f.write_all(line.as_bytes())?;
         f.sync_all()?;
@@ -345,6 +391,9 @@ impl Journal {
 }
 
 fn sync_dir(file: &Path) -> io::Result<()> {
-    let dir = file.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let dir = file
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
     File::open(dir)?.sync_all()
 }

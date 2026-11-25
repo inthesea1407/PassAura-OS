@@ -11,7 +11,11 @@ impl Random for Fixed {
     }
 }
 
-const F: ArgonParams = ArgonParams { m_kib: FLOOR_M_KIB, t: FLOOR_T, p: FLOOR_P };
+const F: ArgonParams = ArgonParams {
+    m_kib: FLOOR_M_KIB,
+    t: FLOOR_T,
+    p: FLOOR_P,
+};
 const PW: &[u8] = b"test-passphrase-not-a-real-secret";
 const T: Tier = Tier::Gb2;
 const V1: Suite = Suite::V1;
@@ -38,7 +42,10 @@ fn roundtrip_and_layout_v1() {
     let f = sample();
     assert_eq!(&f[..4], b"PAVS");
     assert_eq!(f[6], 1);
-    assert_eq!(f.len(), HEADER_LEN + ENVELOPE_LEN + NONCE_LEN + b"hello vault".len() + TAG_LEN);
+    assert_eq!(
+        f.len(),
+        HEADER_LEN + ENVELOPE_LEN + NONCE_LEN + b"hello vault".len() + TAG_LEN
+    );
     assert_eq!(&*op(PW, &f).unwrap(), b"hello vault");
     assert_eq!(op(b"wrong", &f).unwrap_err(), Error::EnvelopeAuth);
 }
@@ -58,7 +65,10 @@ fn roundtrip_l1_and_header_id() {
     let f = sample_l1();
     assert_eq!(f[6], 2);
     let p = &f[HEADER_LEN + ENVELOPE_LEN..];
-    assert_eq!(p[0], 2, "payload is the suites L1 blob (starts with the suite id)");
+    assert_eq!(
+        p[0], 2,
+        "payload is the suites L1 blob (starts with the suite id)"
+    );
     assert_eq!(&*open(PW, &f, L1, T).unwrap(), b"hello vault");
     assert_eq!(open(b"wrong", &f, L1, T).unwrap_err(), Error::EnvelopeAuth);
 }
@@ -68,11 +78,26 @@ fn expected_suite_mismatch_is_refused_before_kdf_both_ways() {
     // Wrong passphrase would give EnvelopeAuth if the KDF ran; SuiteMismatch proves the header check won.
     let v1 = sample();
     let l1 = sample_l1();
-    assert_eq!(open(b"wrong", &v1, L1, T).unwrap_err(), Error::SuiteMismatch { expected: 2, found: 1 });
-    assert_eq!(open(b"wrong", &l1, V1, T).unwrap_err(), Error::SuiteMismatch { expected: 1, found: 2 });
+    assert_eq!(
+        open(b"wrong", &v1, L1, T).unwrap_err(),
+        Error::SuiteMismatch {
+            expected: 2,
+            found: 1
+        }
+    );
+    assert_eq!(
+        open(b"wrong", &l1, V1, T).unwrap_err(),
+        Error::SuiteMismatch {
+            expected: 1,
+            found: 2
+        }
+    );
     assert_eq!(
         rewrap(PW, b"n", &v1, L1, &F, &lim(), &mut Fixed(1)).unwrap_err(),
-        Error::SuiteMismatch { expected: 2, found: 1 }
+        Error::SuiteMismatch {
+            expected: 2,
+            found: 1
+        }
     );
 }
 
@@ -109,7 +134,10 @@ fn downgrade_by_swapping_payload_between_suites_fails() {
 fn empty_plaintext_and_empty_passphrase() {
     let f = seal(PW, b"", V1, &F, &lim(), &mut Fixed(9)).unwrap();
     assert_eq!(op(PW, &f).unwrap().len(), 0);
-    assert_eq!(seal(b"", b"x", V1, &F, &lim(), &mut Fixed(0)).unwrap_err(), Error::EmptyPassphrase);
+    assert_eq!(
+        seal(b"", b"x", V1, &F, &lim(), &mut Fixed(0)).unwrap_err(),
+        Error::EmptyPassphrase
+    );
 }
 
 #[test]
@@ -129,7 +157,16 @@ fn envelope_tamper_rejected() {
     let f = sample();
     let e = HEADER_LEN;
     let mut idx: Vec<usize> = (e..e + 13).collect();
-    idx.extend([e + 13, e + 28, e + 29, e + 52, e + 53, e + 84, e + 85, e + 100]);
+    idx.extend([
+        e + 13,
+        e + 28,
+        e + 29,
+        e + 52,
+        e + 53,
+        e + 84,
+        e + 85,
+        e + 100,
+    ]);
     for i in idx {
         let mut g = f.clone();
         g[i] ^= 1;
@@ -142,10 +179,23 @@ fn payload_tamper_rejected() {
     for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
         let start = HEADER_LEN + ENVELOPE_LEN;
         let mid = start + (f.len() - start) / 2;
-        for i in [start, start + 1, start + 23, start + 24, mid, f.len() - 17, f.len() - 16, f.len() - 1] {
+        for i in [
+            start,
+            start + 1,
+            start + 23,
+            start + 24,
+            mid,
+            f.len() - 17,
+            f.len() - 16,
+            f.len() - 1,
+        ] {
             let mut g = f.clone();
             g[i] ^= 1;
-            assert_eq!(open(PW, &g, suite, T).unwrap_err(), Error::PayloadAuth, "{suite:?} payload byte {i}");
+            assert_eq!(
+                open(PW, &g, suite, T).unwrap_err(),
+                Error::PayloadAuth,
+                "{suite:?} payload byte {i}"
+            );
         }
     }
 }
@@ -161,7 +211,10 @@ fn truncation_and_extension_rejected() {
     g.push(0);
     assert_eq!(op(PW, &g).unwrap_err(), Error::PayloadAuth);
     let l = sample_l1();
-    assert_eq!(open(PW, &l[..l.len() - 1], L1, T).unwrap_err(), Error::PayloadAuth);
+    assert_eq!(
+        open(PW, &l[..l.len() - 1], L1, T).unwrap_err(),
+        Error::PayloadAuth
+    );
 }
 
 #[test]
@@ -193,20 +246,32 @@ fn params_outside_bounds_rejected_with_distinct_errors() {
     // The unit test in src/lib.rs proves with a counting KDF that none of these reach the KDF.
     let base = sample();
     let cases = [
-        ((F.m_kib - 1, F.t, F.p), Error::ParamBelowFloor(Param::Memory)),
+        (
+            (F.m_kib - 1, F.t, F.p),
+            Error::ParamBelowFloor(Param::Memory),
+        ),
         ((F.m_kib, F.t - 1, F.p), Error::ParamBelowFloor(Param::Time)),
-        ((F.m_kib, F.t, 0), Error::ParamBelowFloor(Param::Parallelism)),
+        (
+            (F.m_kib, F.t, 0),
+            Error::ParamBelowFloor(Param::Parallelism),
+        ),
         ((cap_m() + 1, F.t, F.p), Error::ParamAboveCap(Param::Memory)),
         ((u32::MAX, F.t, F.p), Error::ParamAboveCap(Param::Memory)),
         ((F.m_kib, CAP_T + 1, F.p), Error::ParamAboveCap(Param::Time)),
         ((F.m_kib, u32::MAX, F.p), Error::ParamAboveCap(Param::Time)),
-        ((F.m_kib, F.t, CAP_P + 1), Error::ParamAboveCap(Param::Parallelism)),
+        (
+            (F.m_kib, F.t, CAP_P + 1),
+            Error::ParamAboveCap(Param::Parallelism),
+        ),
     ];
     for ((m, t, p), want) in cases {
         let mut g = base.clone();
         set_params(&mut g, m, t, p);
         assert_eq!(op(PW, &g).unwrap_err(), want);
-        assert_eq!(rewrap(PW, PW, &g, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(), want);
+        assert_eq!(
+            rewrap(PW, PW, &g, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(),
+            want
+        );
     }
 }
 
@@ -218,22 +283,70 @@ fn tier_ceiling_is_one_eighth_of_ram_and_reader_decides() {
     // (the Gb4 read then fails later only because the stored params no longer match the real key).
     let mut g = sample();
     set_params(&mut g, Tier::Gb4.ceiling_m_kib(), F.t, F.p);
-    assert_eq!(open(PW, &g, V1, Tier::Gb2).unwrap_err(), Error::ParamAboveCap(Param::Memory));
+    assert_eq!(
+        open(PW, &g, V1, Tier::Gb2).unwrap_err(),
+        Error::ParamAboveCap(Param::Memory)
+    );
 }
 
 #[test]
 fn writer_rejects_out_of_bounds_params() {
-    let low = ArgonParams { m_kib: F.m_kib - 1, ..F };
+    let low = ArgonParams {
+        m_kib: F.m_kib - 1,
+        ..F
+    };
     let high = ArgonParams { p: CAP_P + 1, ..F };
-    assert_eq!(seal(PW, b"x", V1, &low, &lim(), &mut Fixed(0)).unwrap_err(), Error::ParamBelowFloor(Param::Memory));
-    assert_eq!(seal(PW, b"x", V1, &high, &lim(), &mut Fixed(0)).unwrap_err(), Error::ParamAboveCap(Param::Parallelism));
-    let over = ArgonParams { m_kib: cap_m() + 1, ..F };
-    assert_eq!(seal(PW, b"x", V1, &over, &lim(), &mut Fixed(0)).unwrap_err(), Error::ParamAboveCap(Param::Memory));
-    assert_eq!((ArgonParams::DEFAULT.m_kib, ArgonParams::DEFAULT.t, ArgonParams::DEFAULT.p), (65536, 3, 4));
+    assert_eq!(
+        seal(PW, b"x", V1, &low, &lim(), &mut Fixed(0)).unwrap_err(),
+        Error::ParamBelowFloor(Param::Memory)
+    );
+    assert_eq!(
+        seal(PW, b"x", V1, &high, &lim(), &mut Fixed(0)).unwrap_err(),
+        Error::ParamAboveCap(Param::Parallelism)
+    );
+    let over = ArgonParams {
+        m_kib: cap_m() + 1,
+        ..F
+    };
+    assert_eq!(
+        seal(PW, b"x", V1, &over, &lim(), &mut Fixed(0)).unwrap_err(),
+        Error::ParamAboveCap(Param::Memory)
+    );
+    assert_eq!(
+        (
+            ArgonParams::DEFAULT.m_kib,
+            ArgonParams::DEFAULT.t,
+            ArgonParams::DEFAULT.p
+        ),
+        (65536, 3, 4)
+    );
     assert!(check_params(&ArgonParams::DEFAULT, Tier::Gb2).is_ok());
-    for tier in [Tier::Gb2, Tier::Gb4, Tier::Gb8, Tier::Gb16, Tier::Gb32, Tier::Gb64] {
-        assert!(check_params(&ArgonParams { m_kib: tier.ceiling_m_kib(), t: CAP_T, p: CAP_P }, tier).is_ok());
-        assert!(check_params(&ArgonParams { m_kib: tier.ceiling_m_kib() + 1, t: F.t, p: F.p }, tier).is_err());
+    for tier in [
+        Tier::Gb2,
+        Tier::Gb4,
+        Tier::Gb8,
+        Tier::Gb16,
+        Tier::Gb32,
+        Tier::Gb64,
+    ] {
+        assert!(check_params(
+            &ArgonParams {
+                m_kib: tier.ceiling_m_kib(),
+                t: CAP_T,
+                p: CAP_P
+            },
+            tier
+        )
+        .is_ok());
+        assert!(check_params(
+            &ArgonParams {
+                m_kib: tier.ceiling_m_kib() + 1,
+                t: F.t,
+                p: F.p
+            },
+            tier
+        )
+        .is_err());
     }
 }
 
@@ -241,13 +354,29 @@ fn writer_rejects_out_of_bounds_params() {
 fn rewrap_preserves_payload_and_header_and_changes_envelope() {
     for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
         let new_params = ArgonParams { t: 3, ..F };
-        let g = rewrap(PW, b"new-passphrase", &f, suite, &new_params, &lim(), &mut Fixed(100)).unwrap();
+        let g = rewrap(
+            PW,
+            b"new-passphrase",
+            &f,
+            suite,
+            &new_params,
+            &lim(),
+            &mut Fixed(100),
+        )
+        .unwrap();
         let pstart = HEADER_LEN + ENVELOPE_LEN;
         assert_eq!(f.len(), g.len());
         assert_eq!(&f[..HEADER_LEN], &g[..HEADER_LEN]);
-        assert_eq!(&f[pstart..], &g[pstart..], "payload bytes must be byte-identical");
+        assert_eq!(
+            &f[pstart..],
+            &g[pstart..],
+            "payload bytes must be byte-identical"
+        );
         assert_ne!(&f[HEADER_LEN..pstart], &g[HEADER_LEN..pstart]);
-        assert_eq!(&*open(b"new-passphrase", &g, suite, T).unwrap(), b"hello vault");
+        assert_eq!(
+            &*open(b"new-passphrase", &g, suite, T).unwrap(),
+            b"hello vault"
+        );
         assert_eq!(open(PW, &g, suite, T).unwrap_err(), Error::EnvelopeAuth);
         assert_eq!(&g[HEADER_LEN + 5..HEADER_LEN + 9], &3u32.to_be_bytes());
     }
@@ -259,17 +388,26 @@ fn rewrap_authenticates_payload_before_writing() {
         let mut g = f.clone();
         let last = g.len() - 1;
         g[last] ^= 1;
-        assert_eq!(rewrap(PW, b"new", &g, suite, &F, &lim(), &mut Fixed(1)).unwrap_err(), Error::PayloadAuth);
+        assert_eq!(
+            rewrap(PW, b"new", &g, suite, &F, &lim(), &mut Fixed(1)).unwrap_err(),
+            Error::PayloadAuth
+        );
         let mut g = f.clone();
         g[HEADER_LEN + ENVELOPE_LEN + 1] ^= 1;
-        assert_eq!(rewrap(PW, b"new", &g, suite, &F, &lim(), &mut Fixed(1)).unwrap_err(), Error::PayloadAuth);
+        assert_eq!(
+            rewrap(PW, b"new", &g, suite, &F, &lim(), &mut Fixed(1)).unwrap_err(),
+            Error::PayloadAuth
+        );
     }
 }
 
 #[test]
 fn rewrap_with_wrong_old_passphrase_fails() {
     let f = sample();
-    assert_eq!(rewrap(b"nope", b"x", &f, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(), Error::EnvelopeAuth);
+    assert_eq!(
+        rewrap(b"nope", b"x", &f, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(),
+        Error::EnvelopeAuth
+    );
 }
 
 #[test]
@@ -317,13 +455,19 @@ fn rng_failure_is_reported() {
             Err(Error::Random)
         }
     }
-    assert_eq!(seal(PW, b"x", V1, &F, &lim(), &mut Bad).unwrap_err(), Error::Random);
+    assert_eq!(
+        seal(PW, b"x", V1, &F, &lim(), &mut Bad).unwrap_err(),
+        Error::Random
+    );
 }
 
 #[test]
 fn oversized_plaintext_rejected() {
     let big = vec![0u8; MAX_PLAINTEXT_LEN + 1];
-    assert_eq!(seal(PW, &big, V1, &F, &lim(), &mut Fixed(0)).unwrap_err(), Error::PlaintextTooLarge);
+    assert_eq!(
+        seal(PW, &big, V1, &F, &lim(), &mut Fixed(0)).unwrap_err(),
+        Error::PlaintextTooLarge
+    );
 }
 
 #[test]
@@ -336,12 +480,18 @@ fn file_roundtrip_atomic_write() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&p).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
     let g = rewrap(PW, b"n", &r, V1, &F, &lim(), &mut Fixed(7)).unwrap();
     write_file_atomic(&p, &g).unwrap();
     assert_eq!(&*op(b"n", &read_file(&p).unwrap()).unwrap(), b"hello vault");
-    let names: Vec<_> = std::fs::read_dir(d.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    let names: Vec<_> = std::fs::read_dir(d.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
     assert_eq!(names.len(), 1, "{names:?}");
 }
 
@@ -355,13 +505,20 @@ fn failed_write_keeps_old_file_and_leaves_no_temp() {
     std::fs::write(q.join("x"), b"x").unwrap();
     assert!(write_file_atomic(&q, b"new").is_err());
     assert_eq!(std::fs::read(&p).unwrap(), b"old");
-    assert_eq!(std::fs::read_dir(d.path()).unwrap().count(), 2, "no temp file may remain");
+    assert_eq!(
+        std::fs::read_dir(d.path()).unwrap().count(),
+        2,
+        "no temp file may remain"
+    );
     assert!(write_file_atomic(&d.path().join("nope/v"), b"x").is_err());
 }
 
 #[test]
 fn read_file_rejects_missing() {
-    assert_eq!(read_file(std::path::Path::new("/nonexistent/zzz")).unwrap_err(), Error::Io(std::io::ErrorKind::NotFound));
+    assert_eq!(
+        read_file(std::path::Path::new("/nonexistent/zzz")).unwrap_err(),
+        Error::Io(std::io::ErrorKind::NotFound)
+    );
 }
 
 // ---- monotonic envelope version (rollback detection) ----
@@ -391,8 +548,17 @@ fn seal_starts_at_version_one_and_stores_it_in_the_envelope() {
 fn open_min_version_accepts_equal_and_higher_and_rejects_older() {
     for (f, suite) in [(sample(), V1), (sample_l1(), L1)] {
         assert!(omv(&f, suite, 1).is_ok());
-        assert_eq!(omv(&f, suite, 2).unwrap_err(), Error::RollbackDetected { found: 1, min: 2 });
-        assert_eq!(omv(&f, suite, u64::MAX).unwrap_err(), Error::RollbackDetected { found: 1, min: u64::MAX });
+        assert_eq!(
+            omv(&f, suite, 2).unwrap_err(),
+            Error::RollbackDetected { found: 1, min: 2 }
+        );
+        assert_eq!(
+            omv(&f, suite, u64::MAX).unwrap_err(),
+            Error::RollbackDetected {
+                found: 1,
+                min: u64::MAX
+            }
+        );
     }
 }
 
@@ -429,7 +595,10 @@ fn old_copy_is_rejected_when_caller_holds_a_higher_minimum() {
 #[test]
 fn wrong_passphrase_never_reports_a_version() {
     let f = sample();
-    assert_eq!(open_min_version(b"nope", &f, V1, T, 99).unwrap_err(), Error::EnvelopeAuth);
+    assert_eq!(
+        open_min_version(b"nope", &f, V1, T, 99).unwrap_err(),
+        Error::EnvelopeAuth
+    );
 }
 
 #[test]
@@ -439,14 +608,21 @@ fn every_version_byte_is_authenticated_by_the_envelope_tag() {
             for bit in 0..8 {
                 let mut g = f.clone();
                 g[i] ^= 1 << bit;
-                assert_eq!(omv(&g, suite, 0).unwrap_err(), Error::EnvelopeAuth, "byte {i} bit {bit}");
+                assert_eq!(
+                    omv(&g, suite, 0).unwrap_err(),
+                    Error::EnvelopeAuth,
+                    "byte {i} bit {bit}"
+                );
             }
         }
         // Raising the version to dodge a minimum, or lowering a rewrapped file, fails the same way.
         let g = rw(&f, suite, PW, b"x", 10);
         let mut h = g.clone();
         h[VOFF..VOFF + 8].copy_from_slice(&1u64.to_be_bytes());
-        assert_eq!(open_min_version(b"x", &h, suite, T, 0).unwrap_err(), Error::EnvelopeAuth);
+        assert_eq!(
+            open_min_version(b"x", &h, suite, T, 0).unwrap_err(),
+            Error::EnvelopeAuth
+        );
     }
 }
 
@@ -469,6 +645,9 @@ fn envelope_with_old_version_cannot_be_spliced_onto_a_newer_file() {
 fn rewrap_failure_does_not_change_the_input_or_version() {
     let f = sample();
     let before = f.clone();
-    assert_eq!(rewrap(b"nope", b"x", &f, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(), Error::EnvelopeAuth);
+    assert_eq!(
+        rewrap(b"nope", b"x", &f, V1, &F, &lim(), &mut Fixed(1)).unwrap_err(),
+        Error::EnvelopeAuth
+    );
     assert_eq!(f, before);
 }

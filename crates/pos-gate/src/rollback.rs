@@ -47,7 +47,9 @@ impl StdFileOps {
         for attempt in 0..WINDOWS_RENAME_MAX_RETRIES {
             match fs::rename(from, to) {
                 Ok(()) => return Ok(()),
-                Err(err) if Self::is_access_denied(&err) && attempt + 1 < WINDOWS_RENAME_MAX_RETRIES => {
+                Err(err)
+                    if Self::is_access_denied(&err) && attempt + 1 < WINDOWS_RENAME_MAX_RETRIES =>
+                {
                     last_err = Some(err);
                     thread::sleep(Duration::from_millis(
                         WINDOWS_RENAME_BACKOFF_MS * (attempt as u64 + 1),
@@ -536,7 +538,10 @@ mod tests {
 
         // Equal seq with different digest must also fail
         let mismatch = store.accept_and_persist(15, D3, Some(1735689750));
-        assert!(matches!(mismatch, Err(RollbackError::DigestMismatch { seq: 15, .. })));
+        assert!(matches!(
+            mismatch,
+            Err(RollbackError::DigestMismatch { seq: 15, .. })
+        ));
         assert_eq!(store.last_seq(), 15);
 
         let _ = fs::remove_dir_all(&dir);
@@ -583,7 +588,10 @@ mod stale_state_tests {
         a.accept_and_persist(5, "aa", Some(1)).unwrap();
         // b still thinks seq is 0, but disk says 5: seq 3 must be rejected.
         let r = b.accept_and_persist(3, "bb", Some(2));
-        assert!(matches!(r, Err(RollbackError::DowngradeRejected { .. })), "{r:?}");
+        assert!(
+            matches!(r, Err(RollbackError::DowngradeRejected { .. })),
+            "{r:?}"
+        );
         assert_eq!(RollbackStore::open(&path).unwrap().last_seq(), 5);
     }
 }

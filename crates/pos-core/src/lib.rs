@@ -113,10 +113,21 @@ impl PolicyEngine {
         }
     }
 
-    pub fn grant(&mut self, id: &SubjectId, resource: &str, action: Action, expires_at: Option<u64>) -> bool {
+    pub fn grant(
+        &mut self,
+        id: &SubjectId,
+        resource: &str,
+        action: Action,
+        expires_at: Option<u64>,
+    ) -> bool {
         match self.subjects.get_mut(id) {
             Some(s) => {
-                s.grants.push(Grant { resource: resource.into(), action, expires_at, revoked: false });
+                s.grants.push(Grant {
+                    resource: resource.into(),
+                    action,
+                    expires_at,
+                    revoked: false,
+                });
                 true
             }
             None => false,
@@ -137,7 +148,11 @@ impl PolicyEngine {
     pub fn revoke(&mut self, id: &SubjectId, resource: &str, action: Action) -> usize {
         let mut n = 0;
         if let Some(s) = self.subjects.get_mut(id) {
-            for g in s.grants.iter_mut().filter(|g| g.resource == resource && g.action == action && !g.revoked) {
+            for g in s
+                .grants
+                .iter_mut()
+                .filter(|g| g.resource == resource && g.action == action && !g.revoked)
+            {
                 g.revoked = true;
                 n += 1;
             }
@@ -146,7 +161,13 @@ impl PolicyEngine {
     }
 
     /// Like `check`, and records the decision in the audit log.
-    pub fn check_logged(&mut self, id: &SubjectId, resource: &str, action: Action, now: u64) -> Decision {
+    pub fn check_logged(
+        &mut self,
+        id: &SubjectId,
+        resource: &str,
+        action: Action,
+        now: u64,
+    ) -> Decision {
         let decision = self.check(id, resource, action, now);
         self.log.push(AuditRecord {
             policy_version: POLICY_VERSION,
@@ -171,11 +192,18 @@ impl PolicyEngine {
         if !s.authenticated {
             return Decision::Deny(DenyReason::NotAuthenticated);
         }
-        if s.denies.iter().any(|(r, a)| *a == action && covers(r, resource)) {
+        if s.denies
+            .iter()
+            .any(|(r, a)| *a == action && covers(r, resource))
+        {
             return Decision::Deny(DenyReason::ExplicitDeny);
         }
         let mut reason = DenyReason::NoGrant;
-        for g in s.grants.iter().filter(|g| g.action == action && covers(&g.resource, resource)) {
+        for g in s
+            .grants
+            .iter()
+            .filter(|g| g.action == action && covers(&g.resource, resource))
+        {
             if g.revoked {
                 reason = DenyReason::Revoked;
             } else if g.expires_at.is_some_and(|t| now >= t) {
@@ -229,21 +257,39 @@ mod tests {
 
     #[test]
     fn only_premium_password_manager() {
-        assert!(category_allowed(AppCategory::PasswordManager, PASSWORD_MANAGER_ID, true));
-        assert!(!category_allowed(AppCategory::PasswordManager, PASSWORD_MANAGER_ID, false));
-        assert!(!category_allowed(AppCategory::PasswordManager, "other.manager", true));
+        assert!(category_allowed(
+            AppCategory::PasswordManager,
+            PASSWORD_MANAGER_ID,
+            true
+        ));
+        assert!(!category_allowed(
+            AppCategory::PasswordManager,
+            PASSWORD_MANAGER_ID,
+            false
+        ));
+        assert!(!category_allowed(
+            AppCategory::PasswordManager,
+            "other.manager",
+            true
+        ));
     }
 
     #[test]
     fn denies_by_default() {
         let (e, s) = setup();
-        assert_eq!(e.check(&s, "app/notes", Action::Read, 0), Decision::Deny(DenyReason::NoGrant));
+        assert_eq!(
+            e.check(&s, "app/notes", Action::Read, 0),
+            Decision::Deny(DenyReason::NoGrant)
+        );
     }
 
     #[test]
     fn unknown_subject_denied() {
         let e = PolicyEngine::new();
-        assert_eq!(e.check(&SubjectId("x".into()), "a", Action::Read, 0), Decision::Deny(DenyReason::UnknownSubject));
+        assert_eq!(
+            e.check(&SubjectId("x".into()), "a", Action::Read, 0),
+            Decision::Deny(DenyReason::UnknownSubject)
+        );
     }
 
     #[test]
@@ -251,16 +297,28 @@ mod tests {
         let (mut e, s) = setup();
         e.grant(&s, "app/notes", Action::Read, None);
         e.set_authenticated(&s, false);
-        assert_eq!(e.check(&s, "app/notes", Action::Read, 0), Decision::Deny(DenyReason::NotAuthenticated));
+        assert_eq!(
+            e.check(&s, "app/notes", Action::Read, 0),
+            Decision::Deny(DenyReason::NotAuthenticated)
+        );
     }
 
     #[test]
     fn grant_allows_child_not_sibling() {
         let (mut e, s) = setup();
         e.grant(&s, "app/notes", Action::Read, None);
-        assert_eq!(e.check(&s, "app/notes/data", Action::Read, 0), Decision::Allow);
-        assert_eq!(e.check(&s, "app/notes2", Action::Read, 0), Decision::Deny(DenyReason::NoGrant));
-        assert_eq!(e.check(&s, "app/notes/data", Action::Write, 0), Decision::Deny(DenyReason::NoGrant));
+        assert_eq!(
+            e.check(&s, "app/notes/data", Action::Read, 0),
+            Decision::Allow
+        );
+        assert_eq!(
+            e.check(&s, "app/notes2", Action::Read, 0),
+            Decision::Deny(DenyReason::NoGrant)
+        );
+        assert_eq!(
+            e.check(&s, "app/notes/data", Action::Write, 0),
+            Decision::Deny(DenyReason::NoGrant)
+        );
     }
 
     #[test]
@@ -268,7 +326,10 @@ mod tests {
         let (mut e, s) = setup();
         e.grant(&s, "cam", Action::Camera, Some(100));
         assert_eq!(e.check(&s, "cam", Action::Camera, 99), Decision::Allow);
-        assert_eq!(e.check(&s, "cam", Action::Camera, 100), Decision::Deny(DenyReason::Expired));
+        assert_eq!(
+            e.check(&s, "cam", Action::Camera, 100),
+            Decision::Deny(DenyReason::Expired)
+        );
     }
 
     #[test]
@@ -276,7 +337,10 @@ mod tests {
         let (mut e, s) = setup();
         e.grant(&s, "net", Action::Network, None);
         assert_eq!(e.revoke(&s, "net", Action::Network), 1);
-        assert_eq!(e.check(&s, "net", Action::Network, 0), Decision::Deny(DenyReason::Revoked));
+        assert_eq!(
+            e.check(&s, "net", Action::Network, 0),
+            Decision::Deny(DenyReason::Revoked)
+        );
     }
 
     #[test]
@@ -284,7 +348,10 @@ mod tests {
         let (mut e, s) = setup();
         e.grant(&s, "*", Action::Read, None);
         e.deny(&s, "secrets", Action::Read);
-        assert_eq!(e.check(&s, "secrets/key", Action::Read, 0), Decision::Deny(DenyReason::ExplicitDeny));
+        assert_eq!(
+            e.check(&s, "secrets/key", Action::Read, 0),
+            Decision::Deny(DenyReason::ExplicitDeny)
+        );
         assert_eq!(e.check(&s, "other", Action::Read, 0), Decision::Allow);
     }
 
@@ -305,9 +372,15 @@ mod tests {
     fn empty_resource_and_wildcard_boundaries() {
         let (mut e, s) = setup();
         e.grant(&s, "app", Action::Read, None);
-        assert_eq!(e.check(&s, "", Action::Read, 0), Decision::Deny(DenyReason::NoGrant));
+        assert_eq!(
+            e.check(&s, "", Action::Read, 0),
+            Decision::Deny(DenyReason::NoGrant)
+        );
         assert_eq!(e.check(&s, "app/", Action::Read, 0), Decision::Allow);
-        assert_eq!(e.check(&s, "ap", Action::Read, 0), Decision::Deny(DenyReason::NoGrant));
+        assert_eq!(
+            e.check(&s, "ap", Action::Read, 0),
+            Decision::Deny(DenyReason::NoGrant)
+        );
     }
 
     #[test]

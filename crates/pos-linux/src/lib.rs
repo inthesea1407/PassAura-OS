@@ -30,7 +30,10 @@ mod tests {
         assert_eq!(map_permission("fs.write"), Some(Action::Write));
         assert_eq!(map_permission("proc.exec"), Some(Action::Execute));
         assert_eq!(map_permission("dev.video"), Some(Action::Camera));
-        assert_eq!(map_permission("dev.audio.capture"), Some(Action::Microphone));
+        assert_eq!(
+            map_permission("dev.audio.capture"),
+            Some(Action::Microphone)
+        );
         assert_eq!(map_permission("geo.read"), Some(Action::Location));
         assert_eq!(map_permission(""), None);
         assert_eq!(map_permission("NET.CONNECT"), None);

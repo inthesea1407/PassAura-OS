@@ -23,7 +23,9 @@
 //!
 //! Limits: no power-loss claim. Directory fsync is unix only. Windows is untested.
 
-use crate::{is_safe_name, verify_envelope, AcceptedState, Artifact, UpdateError, Verified, VerifyPolicy};
+use crate::{
+    is_safe_name, verify_envelope, AcceptedState, Artifact, UpdateError, Verified, VerifyPolicy,
+};
 use crate::{MAX_ARTIFACT_NAME_LEN, MAX_CHANNEL_LEN};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -44,7 +46,11 @@ pub trait Transport {
     /// anything over `MAX_ENVELOPE_BYTES`.
     fn fetch_manifest(&mut self, channel: &str) -> io::Result<Vec<u8>>;
     /// A reader for one payload. The flow never reads more than `artifact.size + 1` bytes from it.
-    fn fetch_artifact<'a>(&'a mut self, channel: &str, artifact: &Artifact) -> io::Result<Box<dyn Read + 'a>>;
+    fn fetch_artifact<'a>(
+        &'a mut self,
+        channel: &str,
+        artifact: &Artifact,
+    ) -> io::Result<Box<dyn Read + 'a>>;
 }
 
 /// Per-channel rollback state. `store` must be atomic: after it returns Ok, a later `load` returns the new
@@ -138,7 +144,10 @@ pub enum Outcome {
     /// Handed off and persisted. `cleanup_complete` is false when something this run created could not be
     /// removed, or when a stage directory or payload of an earlier run was reused (left in place, never
     /// deleted here).
-    Applied { sequence: u64, cleanup_complete: bool },
+    Applied {
+        sequence: u64,
+        cleanup_complete: bool,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,7 +158,9 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { max_total_bytes: DEFAULT_MAX_TOTAL_BYTES }
+        Options {
+            max_total_bytes: DEFAULT_MAX_TOTAL_BYTES,
+        }
     }
 }
 
@@ -323,13 +334,19 @@ impl Stager {
             if !is_safe_name(&a.name, MAX_ARTIFACT_NAME_LEN) || !names.insert(a.name.as_str()) {
                 return Err(StageError::BadName);
             }
-            declared = declared.checked_add(a.size).ok_or(StageError::TotalCapExceeded)?;
+            declared = declared
+                .checked_add(a.size)
+                .ok_or(StageError::TotalCapExceeded)?;
         }
         if declared > max_total {
             return Err(StageError::TotalCapExceeded);
         }
         self.ensure_root(created)?;
-        let dir_name = format!("{key}.{}.{}", verified.state.sequence, hex::encode(&verified.state.digest[..8]));
+        let dir_name = format!(
+            "{key}.{}.{}",
+            verified.state.sequence,
+            hex::encode(&verified.state.digest[..8])
+        );
         let dir = self.root.join(dir_name);
         match make_private_dir(&dir) {
             Ok(()) => created.dirs.push(dir.clone()),
@@ -360,7 +377,11 @@ impl Stager {
                 }
                 Err(e) => return Err(e.into()),
             }
-            files.push(StagedFile { name: a.name.clone(), sha256: a.sha256.clone(), size: a.size });
+            files.push(StagedFile {
+                name: a.name.clone(),
+                sha256: a.sha256.clone(),
+                size: a.size,
+            });
         }
         Ok(StagedUpdate { dir, files })
     }
@@ -375,7 +396,11 @@ impl Stager {
     ) -> Result<(), StageError> {
         let reader = transport.fetch_artifact(channel, a)?;
         // A leading dot is not allowed in artifact names, so a temp name never collides with a payload.
-        let tmp = dir.join(format!(".stage-tmp-{}-{}", std::process::id(), TMP_COUNTER.fetch_add(1, Ordering::Relaxed)));
+        let tmp = dir.join(format!(
+            ".stage-tmp-{}-{}",
+            std::process::id(),
+            TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
         let mut oo = OpenOptions::new();
         oo.write(true).create_new(true);
         #[cfg(unix)]
@@ -471,7 +496,15 @@ where
     S: StateStore,
     H: Handoff,
 {
-    run_with_stager(channel, policy, transport, store, handoff, Stager::new(stage_root), opts)
+    run_with_stager(
+        channel,
+        policy,
+        transport,
+        store,
+        handoff,
+        Stager::new(stage_root),
+        opts,
+    )
 }
 
 fn run_with_stager<T, S, H>(
@@ -492,14 +525,26 @@ where
     if policy.expected_channel != channel {
         return Err(FlowError::ChannelMismatch);
     }
-    let prev = store.load(channel).map_err(|e| FlowError::State(e.kind()))?;
-    let bytes = transport.fetch_manifest(channel).map_err(|e| FlowError::Transport(e.kind()))?;
+    let prev = store
+        .load(channel)
+        .map_err(|e| FlowError::State(e.kind()))?;
+    let bytes = transport
+        .fetch_manifest(channel)
+        .map_err(|e| FlowError::Transport(e.kind()))?;
     let verified = verify_envelope(&bytes, policy, prev.as_ref()).map_err(FlowError::Verify)?;
     if verified.idempotent {
-        return Ok(Outcome::AlreadyCurrent { sequence: verified.state.sequence });
+        return Ok(Outcome::AlreadyCurrent {
+            sequence: verified.state.sequence,
+        });
     }
     let mut created = Created::default();
-    let staged = match stager.stage(channel, &verified, transport, opts.max_total_bytes, &mut created) {
+    let staged = match stager.stage(
+        channel,
+        &verified,
+        transport,
+        opts.max_total_bytes,
+        &mut created,
+    ) {
         Ok(s) => s,
         Err(e) => {
             cleanup(&created);
@@ -515,7 +560,10 @@ where
         return Err(FlowError::State(e.kind()));
     }
     let cleanup_complete = cleanup(&created) && !created.reused;
-    Ok(Outcome::Applied { sequence: verified.state.sequence, cleanup_complete })
+    Ok(Outcome::Applied {
+        sequence: verified.state.sequence,
+        cleanup_complete,
+    })
 }
 
 #[cfg(test)]

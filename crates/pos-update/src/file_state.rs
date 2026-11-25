@@ -28,7 +28,10 @@ const HEADER_LINE: &str = "pos-update-state-v1";
 pub enum FileStateError {
     BadChannel,
     /// Another holder kept the lock for the whole timeout.
-    Held { path: PathBuf, waited: Duration },
+    Held {
+        path: PathBuf,
+        waited: Duration,
+    },
     Io(io::Error),
 }
 
@@ -37,7 +40,11 @@ impl std::fmt::Display for FileStateError {
         match self {
             FileStateError::BadChannel => write!(f, "invalid channel name"),
             FileStateError::Held { path, waited } => {
-                write!(f, "state lock {} is held by another process (waited {waited:?})", path.display())
+                write!(
+                    f,
+                    "state lock {} is held by another process (waited {waited:?})",
+                    path.display()
+                )
             }
             FileStateError::Io(e) => write!(f, "state I/O error: {e}"),
         }
@@ -63,7 +70,11 @@ pub struct FileStateStore {
 
 impl FileStateStore {
     /// `dir` must exist. Takes `<dir>/<key>.lock`, waiting at most `timeout`.
-    pub fn acquire(dir: &Path, channel: &str, timeout: Duration) -> Result<FileStateStore, FileStateError> {
+    pub fn acquire(
+        dir: &Path,
+        channel: &str,
+        timeout: Duration,
+    ) -> Result<FileStateStore, FileStateError> {
         let key = channel_key(channel).map_err(|_| FileStateError::BadChannel)?;
         let lock_path = dir.join(format!("{key}.lock"));
         let mut opts = OpenOptions::new();
@@ -81,7 +92,10 @@ impl FileStateStore {
                 Err(TryLockError::WouldBlock) => {
                     let waited = start.elapsed();
                     if waited >= timeout {
-                        return Err(FileStateError::Held { path: lock_path, waited });
+                        return Err(FileStateError::Held {
+                            path: lock_path,
+                            waited,
+                        });
                     }
                     thread::sleep(Duration::from_millis(10));
                 }
@@ -118,20 +132,32 @@ impl FileStateStore {
 
     /// Test-only failure injection for the state write. Compiled only with feature `fault-injection`.
     #[cfg(feature = "fault-injection")]
-    pub fn set_fault_hook(&mut self, hook: Box<dyn FnMut(pos_vault_store::WriteStep) -> pos_vault_store::HookAction>) {
+    pub fn set_fault_hook(
+        &mut self,
+        hook: Box<dyn FnMut(pos_vault_store::WriteStep) -> pos_vault_store::HookAction>,
+    ) {
         self.hook = Some(hook);
     }
 
     fn check_channel(&self, channel: &str) -> io::Result<()> {
         if channel != self.channel {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "store is bound to another channel"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "store is bound to another channel",
+            ));
         }
         Ok(())
     }
 }
 
 fn encode(s: &AcceptedState) -> Vec<u8> {
-    format!("{HEADER_LINE}\nchannel={}\nsequence={}\ndigest={}\n", s.channel, s.sequence, hex::encode(s.digest)).into_bytes()
+    format!(
+        "{HEADER_LINE}\nchannel={}\nsequence={}\ndigest={}\n",
+        s.channel,
+        s.sequence,
+        hex::encode(s.digest)
+    )
+    .into_bytes()
 }
 
 fn decode(bytes: &[u8]) -> Option<AcceptedState> {
@@ -143,16 +169,27 @@ fn decode(bytes: &[u8]) -> Option<AcceptedState> {
     let channel = lines.next()?.strip_prefix("channel=")?.to_string();
     let sequence_text = lines.next()?.strip_prefix("sequence=")?;
     let digest_hex = lines.next()?.strip_prefix("digest=")?;
-    if lines.next().is_some() || sequence_text.is_empty() || !sequence_text.bytes().all(|b| b.is_ascii_digit()) {
+    if lines.next().is_some()
+        || sequence_text.is_empty()
+        || !sequence_text.bytes().all(|b| b.is_ascii_digit())
+    {
         return None;
     }
     let sequence = sequence_text.parse::<u64>().ok()?;
-    if digest_hex.len() != 64 || !digest_hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    if digest_hex.len() != 64
+        || !digest_hex
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    {
         return None;
     }
     let mut digest = [0u8; 32];
     hex::decode_to_slice(digest_hex, &mut digest).ok()?;
-    Some(AcceptedState { channel, sequence, digest })
+    Some(AcceptedState {
+        channel,
+        sequence,
+        digest,
+    })
 }
 
 fn vault_err(e: pos_vault_store::Error) -> io::Error {
@@ -173,11 +210,18 @@ impl StateStore for FileStateStore {
         let mut buf = Vec::new();
         f.take(MAX_STATE_BYTES + 1).read_to_end(&mut buf)?;
         if buf.len() as u64 > MAX_STATE_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "state file too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "state file too large",
+            ));
         }
-        let st = decode(&buf).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed state file"))?;
+        let st = decode(&buf)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed state file"))?;
         if st.channel != self.channel {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "state file is for another channel"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "state file is for another channel",
+            ));
         }
         Ok(Some(st))
     }
@@ -188,7 +232,8 @@ impl StateStore for FileStateStore {
         let path = self.state_path();
         #[cfg(feature = "fault-injection")]
         if let Some(h) = self.hook.as_mut() {
-            return pos_vault_store::write_file_atomic_with_hook(&path, &bytes, h).map_err(vault_err);
+            return pos_vault_store::write_file_atomic_with_hook(&path, &bytes, h)
+                .map_err(vault_err);
         }
         pos_vault_store::write_file_atomic(&path, &bytes).map_err(vault_err)
     }

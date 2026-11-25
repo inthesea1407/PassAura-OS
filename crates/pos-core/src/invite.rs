@@ -73,7 +73,8 @@ impl InviteBook {
         if !self.members.contains_key(id) || !self.revoked.insert(id.into()) {
             return false;
         }
-        self.invites.retain(|_, i| !(i.inviter == id && i.redeemed_by.is_none()));
+        self.invites
+            .retain(|_, i| !(i.inviter == id && i.redeemed_by.is_none()));
         true
     }
 
@@ -97,7 +98,10 @@ impl InviteBook {
     }
 
     pub fn issue(&mut self, inviter: &str, code: &str) -> Result<(), InviteError> {
-        let used = *self.members.get(inviter).ok_or(InviteError::UnknownInviter)?;
+        let used = *self
+            .members
+            .get(inviter)
+            .ok_or(InviteError::UnknownInviter)?;
         // A revoked member must not keep growing the network.
         if self.revoked.contains(inviter) {
             return Err(InviteError::InviterRevoked);
@@ -108,7 +112,13 @@ impl InviteBook {
         if self.invites.contains_key(code) {
             return Err(InviteError::DuplicateCode);
         }
-        self.invites.insert(code.into(), Invite { inviter: inviter.into(), redeemed_by: None });
+        self.invites.insert(
+            code.into(),
+            Invite {
+                inviter: inviter.into(),
+                redeemed_by: None,
+            },
+        );
         *self.members.get_mut(inviter).unwrap() += 1;
         Ok(())
     }

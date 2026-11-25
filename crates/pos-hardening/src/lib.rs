@@ -16,7 +16,14 @@ fn parse_config(cfg: &str) -> std::collections::HashMap<String, char> {
             if k.starts_with("CONFIG_") {
                 // `m` (loadable module) is neither built in nor disabled.
                 let v = v.split('#').next().unwrap_or("").trim().trim_matches('"');
-                m.insert(k.trim().to_string(), match v { "y" => 'y', "m" => 'm', _ => 'n' });
+                m.insert(
+                    k.trim().to_string(),
+                    match v {
+                        "y" => 'y',
+                        "m" => 'm',
+                        _ => 'n',
+                    },
+                );
             }
         }
     }
@@ -36,7 +43,11 @@ pub fn audit(config: &str, profile: &str) -> Vec<Finding> {
             let expected = exp.chars().next().unwrap_or('y');
             let actual = *cfg.get(opt).unwrap_or(&'n');
             if actual != expected {
-                out.push(Finding { option: opt.into(), expected, actual });
+                out.push(Finding {
+                    option: opt.into(),
+                    expected,
+                    actual,
+                });
             }
         }
     }

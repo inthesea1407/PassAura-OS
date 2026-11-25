@@ -78,16 +78,34 @@ fn output_never_flushes_host_rules_or_claims_input_or_global_drop() {
     p.allow_ipv6_nd = true;
     p.allow_dhcp = true;
     let out = render_nft(&p).unwrap();
-    for bad in ["flush", "ct state", "established", "related", "hook input", "hook forward", "policy drop", "delete table inet filter", "delete table ip", "table ip ", "table ip6 "] {
+    for bad in [
+        "flush",
+        "ct state",
+        "established",
+        "related",
+        "hook input",
+        "hook forward",
+        "policy drop",
+        "delete table inet filter",
+        "delete table ip",
+        "table ip ",
+        "table ip6 ",
+    ] {
         assert!(!out.contains(bad), "forbidden text {bad}\n{out}");
     }
     // the only delete is our own table
-    for line in out.lines().filter(|l| l.starts_with("delete") || l.starts_with("flush")) {
+    for line in out
+        .lines()
+        .filter(|l| l.starts_with("delete") || l.starts_with("flush"))
+    {
         assert_eq!(line, "delete table inet passaura_netpolicy");
     }
     assert_eq!(out.matches("hook ").count(), 1);
     assert!(out.contains("hook output"));
-    assert!(out.contains("policy accept"), "base chain must not drop other traffic");
+    assert!(
+        out.contains("policy accept"),
+        "base chain must not drop other traffic"
+    );
 }
 
 #[test]
@@ -109,38 +127,108 @@ fn deterministic_sorted_and_deduplicated() {
 
 #[test]
 fn hostnames_and_junk_are_rejected() {
-    for s in ["example.com", "localhost", "10.0.0.1.5", "10.0.0.256", "", " 10.0.0.1", "10.0.0.1 ", "10.0.0.0/8; drop", "*.example.com", "1.2.3.4/abc", "$(id)", "10.0.0.0/", "2001:db8::/-1"] {
+    for s in [
+        "example.com",
+        "localhost",
+        "10.0.0.1.5",
+        "10.0.0.256",
+        "",
+        " 10.0.0.1",
+        "10.0.0.1 ",
+        "10.0.0.0/8; drop",
+        "*.example.com",
+        "1.2.3.4/abc",
+        "$(id)",
+        "10.0.0.0/",
+        "2001:db8::/-1",
+    ] {
         assert!(parse_target(s).is_err(), "{s:?} must be rejected");
     }
-    assert!(matches!(parse_target("example.com"), Err(PolicyError::NotAnIpOrCidr(_))));
+    assert!(matches!(
+        parse_target("example.com"),
+        Err(PolicyError::NotAnIpOrCidr(_))
+    ));
 }
 
 #[test]
 fn prefix_and_host_bit_rules() {
-    assert!(matches!(parse_target("10.0.0.0/0"), Err(PolicyError::BadPrefix(_))));
-    assert!(matches!(parse_target("10.0.0.0/33"), Err(PolicyError::BadPrefix(_))));
-    assert!(matches!(parse_target("2001:db8::/129"), Err(PolicyError::BadPrefix(_))));
-    assert!(matches!(parse_target("::/0"), Err(PolicyError::BadPrefix(_)) | Err(PolicyError::ReservedTarget(_))));
-    assert!(matches!(parse_target("10.0.0.1/8"), Err(PolicyError::HostBitsSet(_))));
-    assert!(matches!(parse_target("2001:db8::1/32"), Err(PolicyError::HostBitsSet(_))));
-    assert_eq!(parse_target("10.0.0.0/8").unwrap().to_string(), "10.0.0.0/8");
-    assert_eq!(parse_target("192.0.2.9").unwrap().to_string(), "192.0.2.9/32");
-    assert_eq!(parse_target("2001:db8::9").unwrap().to_string(), "2001:db8::9/128");
+    assert!(matches!(
+        parse_target("10.0.0.0/0"),
+        Err(PolicyError::BadPrefix(_))
+    ));
+    assert!(matches!(
+        parse_target("10.0.0.0/33"),
+        Err(PolicyError::BadPrefix(_))
+    ));
+    assert!(matches!(
+        parse_target("2001:db8::/129"),
+        Err(PolicyError::BadPrefix(_))
+    ));
+    assert!(matches!(
+        parse_target("::/0"),
+        Err(PolicyError::BadPrefix(_)) | Err(PolicyError::ReservedTarget(_))
+    ));
+    assert!(matches!(
+        parse_target("10.0.0.1/8"),
+        Err(PolicyError::HostBitsSet(_))
+    ));
+    assert!(matches!(
+        parse_target("2001:db8::1/32"),
+        Err(PolicyError::HostBitsSet(_))
+    ));
+    assert_eq!(
+        parse_target("10.0.0.0/8").unwrap().to_string(),
+        "10.0.0.0/8"
+    );
+    assert_eq!(
+        parse_target("192.0.2.9").unwrap().to_string(),
+        "192.0.2.9/32"
+    );
+    assert_eq!(
+        parse_target("2001:db8::9").unwrap().to_string(),
+        "2001:db8::9/128"
+    );
 }
 
 #[test]
 fn reserved_destinations_must_use_explicit_exceptions() {
-    for s in ["127.0.0.1", "127.0.0.0/8", "0.0.0.0/8", "224.0.0.0/4", "::1", "::", "ff02::1:2", "0.0.0.0/1", "128.0.0.0/1", "0000::/1",
-              "255.255.255.255", "255.255.255.255/32", "240.0.0.0/4", "240.0.0.1", "250.0.0.0/8", "128.0.0.0/1",
-              "::ffff:192.0.2.1", "::ffff:0:0/96", "::ffff:c000:201", "::/1", "8000::/1"] {
+    for s in [
+        "127.0.0.1",
+        "127.0.0.0/8",
+        "0.0.0.0/8",
+        "224.0.0.0/4",
+        "::1",
+        "::",
+        "ff02::1:2",
+        "0.0.0.0/1",
+        "128.0.0.0/1",
+        "0000::/1",
+        "255.255.255.255",
+        "255.255.255.255/32",
+        "240.0.0.0/4",
+        "240.0.0.1",
+        "250.0.0.0/8",
+        "128.0.0.0/1",
+        "::ffff:192.0.2.1",
+        "::ffff:0:0/96",
+        "::ffff:c000:201",
+        "::/1",
+        "8000::/1",
+    ] {
         assert!(parse_target(s).is_err(), "{s} must be refused");
     }
 }
 
 #[test]
 fn uid_must_be_a_dedicated_numeric_uid() {
-    assert!(matches!(render_nft(&Policy::new(0)), Err(PolicyError::InvalidUid(0))));
-    assert!(matches!(render_nft(&Policy::new(u32::MAX)), Err(PolicyError::InvalidUid(_))));
+    assert!(matches!(
+        render_nft(&Policy::new(0)),
+        Err(PolicyError::InvalidUid(0))
+    ));
+    assert!(matches!(
+        render_nft(&Policy::new(u32::MAX)),
+        Err(PolicyError::InvalidUid(_))
+    ));
     assert!(render_nft(&Policy::new(1)).is_ok());
     // empty allow list is valid: it drops everything from the uid
     assert!(render_nft(&Policy::new(1)).unwrap().contains("\t\tdrop\n"));
@@ -148,39 +236,88 @@ fn uid_must_be_a_dedicated_numeric_uid() {
 
 #[test]
 fn resolver_must_be_a_real_unicast_address() {
-    for r in ["127.0.0.1", "0.0.0.0", "224.0.0.251", "255.255.255.255", "::1", "::", "ff02::1"] {
+    for r in [
+        "127.0.0.1",
+        "0.0.0.0",
+        "224.0.0.251",
+        "255.255.255.255",
+        "::1",
+        "::",
+        "ff02::1",
+    ] {
         let mut p = sample();
         p.dns_resolver = Some(r.parse().unwrap());
-        assert!(matches!(render_nft(&p), Err(PolicyError::BadResolver(_))), "{r}");
+        assert!(
+            matches!(render_nft(&p), Err(PolicyError::BadResolver(_))),
+            "{r}"
+        );
     }
 }
 
 #[test]
 fn target_count_is_bounded() {
     let mut p = Policy::new(7);
-    p.allow = (0..=MAX_TARGETS as u32).map(|i| Target::V4(std::net::Ipv4Addr::from(0x0a00_0000 + i), 32)).collect();
-    assert!(matches!(render_nft(&p), Err(PolicyError::TooManyTargets(_))));
+    p.allow = (0..=MAX_TARGETS as u32)
+        .map(|i| Target::V4(std::net::Ipv4Addr::from(0x0a00_0000 + i), 32))
+        .collect();
+    assert!(matches!(
+        render_nft(&p),
+        Err(PolicyError::TooManyTargets(_))
+    ));
     p.allow.pop();
     assert!(render_nft(&p).is_ok());
 }
 
 #[test]
 fn systemd_unit_is_text_with_validated_paths() {
-    let u = render_systemd_unit("/usr/sbin/nft", "/etc/passaura/netpolicy.nft", "/etc/passaura/netpolicy-remove.nft").unwrap();
+    let u = render_systemd_unit(
+        "/usr/sbin/nft",
+        "/etc/passaura/netpolicy.nft",
+        "/etc/passaura/netpolicy-remove.nft",
+    )
+    .unwrap();
     assert!(u.contains("ExecStart=/usr/sbin/nft -f /etc/passaura/netpolicy.nft\n"));
     assert!(u.contains("ExecStop=/usr/sbin/nft -f /etc/passaura/netpolicy-remove.nft\n"));
     assert!(u.contains("Type=oneshot"));
-    for bad in ["nft", "/usr/sbin/nft; rm -rf /", "/a b", "/a/../b", "/", "/a\nExecStart=/bin/sh", "/a%n", "/a$x", ""] {
-        assert!(render_systemd_unit(bad, "/etc/a.nft", "/etc/b.nft").is_err(), "{bad:?}");
-        assert!(render_systemd_unit("/usr/sbin/nft", bad, "/etc/b.nft").is_err(), "{bad:?}");
-        assert!(render_systemd_unit("/usr/sbin/nft", "/etc/a.nft", bad).is_err(), "{bad:?}");
+    for bad in [
+        "nft",
+        "/usr/sbin/nft; rm -rf /",
+        "/a b",
+        "/a/../b",
+        "/",
+        "/a\nExecStart=/bin/sh",
+        "/a%n",
+        "/a$x",
+        "",
+    ] {
+        assert!(
+            render_systemd_unit(bad, "/etc/a.nft", "/etc/b.nft").is_err(),
+            "{bad:?}"
+        );
+        assert!(
+            render_systemd_unit("/usr/sbin/nft", bad, "/etc/b.nft").is_err(),
+            "{bad:?}"
+        );
+        assert!(
+            render_systemd_unit("/usr/sbin/nft", "/etc/a.nft", bad).is_err(),
+            "{bad:?}"
+        );
     }
 }
 
 #[test]
 fn crate_source_has_no_process_file_or_network_access() {
     let src = include_str!("../src/lib.rs");
-    for bad in ["std::process", "std::fs", "TcpStream", "UdpSocket", "Command::new", "unsafe {", "unsafe fn", "unsafe impl"] {
+    for bad in [
+        "std::process",
+        "std::fs",
+        "TcpStream",
+        "UdpSocket",
+        "Command::new",
+        "unsafe {",
+        "unsafe fn",
+        "unsafe impl",
+    ] {
         assert_eq!(src.matches(bad).count(), 0, "{bad} found");
     }
     assert!(src.contains("#![forbid(unsafe_code)]"));
@@ -193,7 +330,10 @@ fn dhcp_and_nd_exceptions_are_destination_bounded() {
     p.allow_ipv6_nd = true;
     let out = render_nft(&p).unwrap();
     // every DHCP and ND rule carries a destination match; none is "any destination"
-    for line in out.lines().filter(|l| l.contains("dport 67") || l.contains("dport 547") || l.contains("icmpv6")) {
+    for line in out
+        .lines()
+        .filter(|l| l.contains("dport 67") || l.contains("dport 547") || l.contains("icmpv6"))
+    {
         assert!(line.contains("daddr"), "unbounded destination: {line}");
     }
     assert!(!out.contains("\t\tudp sport 68 udp dport 67"));
@@ -207,7 +347,14 @@ fn output_states_that_it_fails_open() {
 #[test]
 fn ordinary_special_use_ranges_are_not_rejected() {
     // private, link-local and documentation ranges are the operator's call
-    for s in ["10.0.0.0/8", "169.254.0.0/16", "192.0.2.0/24", "fe80::/10", "fc00::/7", "2001:db8::/32"] {
+    for s in [
+        "10.0.0.0/8",
+        "169.254.0.0/16",
+        "192.0.2.0/24",
+        "fe80::/10",
+        "fc00::/7",
+        "2001:db8::/32",
+    ] {
         assert!(parse_target(s).is_ok(), "{s}");
     }
 }

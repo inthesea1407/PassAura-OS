@@ -57,7 +57,10 @@ impl<'de> Deserialize<'de> for Mode {
         match s.as_str() {
             "allowlist" => Ok(Mode::Allowlist),
             "audit" => Ok(Mode::Audit),
-            other => Err(serde::de::Error::unknown_variant(other, &["allowlist", "audit"])),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["allowlist", "audit"],
+            )),
         }
     }
 }
@@ -87,7 +90,9 @@ impl Policy {
         // An empty source entry would match an empty request source, which no
         // legitimate source has. Reject it instead of loading a wildcard.
         if p.allowed_sources.iter().any(|s| s.trim().is_empty()) {
-            return Err(PolicyError("allowed_sources contains an empty entry".into()));
+            return Err(PolicyError(
+                "allowed_sources contains an empty entry".into(),
+            ));
         }
         Ok(p)
     }
@@ -212,7 +217,10 @@ require_signature = true
     fn parses_full_policy() {
         let p = Policy::from_toml_str(BASE_POLICY).unwrap();
         assert_eq!(p.mode, Mode::Allowlist);
-        assert_eq!(p.allowed_sources, vec!["https://repo.example.com", "https://mirror.example.org"]);
+        assert_eq!(
+            p.allowed_sources,
+            vec!["https://repo.example.com", "https://mirror.example.org"]
+        );
         assert_eq!(p.max_package_size_mb, 500);
         assert!(p.require_signature);
     }
@@ -252,7 +260,8 @@ require_signature = true
     fn rejects_missing_require_signature() {
         // Fail-closed: omitting a security-relevant field is an error,
         // never a permissive default.
-        let toml = "mode = \"allowlist\"\nallowed_sources = [\"registry\"]\nmax_package_size_mb = 100\n";
+        let toml =
+            "mode = \"allowlist\"\nallowed_sources = [\"registry\"]\nmax_package_size_mb = 100\n";
         assert!(Policy::from_toml_str(toml).is_err());
     }
 
@@ -264,7 +273,8 @@ require_signature = true
 
     #[test]
     fn rejects_missing_max_package_size() {
-        let toml = "mode = \"allowlist\"\nallowed_sources = [\"registry\"]\nrequire_signature = false\n";
+        let toml =
+            "mode = \"allowlist\"\nallowed_sources = [\"registry\"]\nrequire_signature = false\n";
         assert!(Policy::from_toml_str(toml).is_err());
     }
 
@@ -288,7 +298,10 @@ require_signature = true
     #[test]
     fn allowlist_allows_clean_request() {
         assert_eq!(
-            evaluate(&Policy::from_toml_str(BASE_POLICY).unwrap(), &base_request()),
+            evaluate(
+                &Policy::from_toml_str(BASE_POLICY).unwrap(),
+                &base_request()
+            ),
             Decision::Allow
         );
     }
@@ -391,7 +404,10 @@ require_signature = true
 
         let mut r = base_request();
         r.size_mb = 9999;
-        assert_eq!(evaluate(&p, &r), Decision::AuditOnly(ReasonCode::SizeExceeded));
+        assert_eq!(
+            evaluate(&p, &r),
+            Decision::AuditOnly(ReasonCode::SizeExceeded)
+        );
 
         let mut r = base_request();
         r.source = "https://evil.example.net".to_string();

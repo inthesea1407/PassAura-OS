@@ -43,7 +43,11 @@ fn sign(m: &Manifest, signers: &[(&str, u8)]) -> Vec<u8> {
             sig_hex: hex::encode(sk(*seed).sign(&msg).to_bytes()),
         })
         .collect();
-    serde_json::to_vec(&Envelope { manifest: m.clone(), signatures }).unwrap()
+    serde_json::to_vec(&Envelope {
+        manifest: m.clone(),
+        signatures,
+    })
+    .unwrap()
 }
 fn ok2(m: &Manifest) -> Vec<u8> {
     sign(m, &[("a", 1), ("b", 2)])
@@ -75,44 +79,77 @@ fn signed_bytes_have_prefix_and_sorted_keys() {
 fn threshold_edges() {
     let k = keys();
     let one = sign(&manifest(1), &[("a", 1)]);
-    assert_eq!(verify_envelope(&one, &pol(&k, 2), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&one, &pol(&k, 2), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
     assert!(verify_envelope(&one, &pol(&k, 1), None).is_ok());
-    assert_eq!(verify_envelope(&one, &pol(&k, 0), None), Err(UpdateError::BadThreshold));
-    assert_eq!(verify_envelope(&one, &pol(&k, 4), None), Err(UpdateError::BadThreshold));
+    assert_eq!(
+        verify_envelope(&one, &pol(&k, 0), None),
+        Err(UpdateError::BadThreshold)
+    );
+    assert_eq!(
+        verify_envelope(&one, &pol(&k, 4), None),
+        Err(UpdateError::BadThreshold)
+    );
     let none = sign(&manifest(1), &[]);
-    assert_eq!(verify_envelope(&none, &pol(&k, 1), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&none, &pol(&k, 1), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
 }
 
 #[test]
 fn duplicate_signer_id_rejected() {
     let k = keys();
     let d = sign(&manifest(1), &[("a", 1), ("a", 1)]);
-    assert_eq!(verify_envelope(&d, &pol(&k, 2), None), Err(UpdateError::DuplicateSignerId));
+    assert_eq!(
+        verify_envelope(&d, &pol(&k, 2), None),
+        Err(UpdateError::DuplicateSignerId)
+    );
 }
 
 #[test]
 fn same_public_key_under_two_ids_is_bad_keyset() {
     let mut k = keys();
     k.push(tkey("a2", 1));
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::BadKeySet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::BadKeySet)
+    );
     let mut k = keys();
     k.push(tkey("a", 9));
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::BadKeySet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::BadKeySet)
+    );
 }
 
 #[test]
 fn unknown_retired_and_out_of_window_not_counted() {
     let mut k = keys();
     let e = sign(&manifest(1), &[("a", 1), ("zz", 7)]);
-    assert_eq!(verify_envelope(&e, &pol(&k, 2), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&e, &pol(&k, 2), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
     k[1].retired = true;
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
     k[1].retired = false;
     k[1].valid_until = NOW; // now >= valid_until
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
     k[1].valid_until = u64::MAX;
     k[1].valid_from = NOW + 1;
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::ThresholdNotMet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::ThresholdNotMet)
+    );
     k[1].valid_from = NOW; // boundary: valid
     assert!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None).is_ok());
 }
@@ -122,7 +159,10 @@ fn bad_signature_from_trusted_key_rejects_whole_even_if_threshold_met() {
     let k = keys();
     // c signs with the wrong key; a, b, would already meet threshold 2.
     let e = sign(&manifest(1), &[("a", 1), ("b", 2), ("c", 99)]);
-    assert_eq!(verify_envelope(&e, &pol(&k, 2), None), Err(UpdateError::BadSignature));
+    assert_eq!(
+        verify_envelope(&e, &pol(&k, 2), None),
+        Err(UpdateError::BadSignature)
+    );
 }
 
 #[test]
@@ -131,11 +171,17 @@ fn signature_over_other_manifest_or_uppercase_hex_rejected() {
     let mut env: Envelope = serde_json::from_slice(&ok2(&manifest(1))).unwrap();
     env.signatures[0].sig_hex = env.signatures[0].sig_hex.to_uppercase();
     let b = serde_json::to_vec(&env).unwrap();
-    assert_eq!(verify_envelope(&b, &pol(&k, 2), None), Err(UpdateError::BadSignature));
+    assert_eq!(
+        verify_envelope(&b, &pol(&k, 2), None),
+        Err(UpdateError::BadSignature)
+    );
     let mut env: Envelope = serde_json::from_slice(&ok2(&manifest(1))).unwrap();
     env.manifest.sequence = 2;
     let b = serde_json::to_vec(&env).unwrap();
-    assert_eq!(verify_envelope(&b, &pol(&k, 2), None), Err(UpdateError::BadSignature));
+    assert_eq!(
+        verify_envelope(&b, &pol(&k, 2), None),
+        Err(UpdateError::BadSignature)
+    );
 }
 
 #[test]
@@ -145,18 +191,27 @@ fn time_edges() {
     m.issued_at = NOW; // == now: ok
     assert!(verify_envelope(&ok2(&m), &pol(&k, 2), None).is_ok());
     m.issued_at = NOW + 1;
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::IssuedInFuture));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::IssuedInFuture)
+    );
     let mut p = pol(&k, 2);
     p.skew_secs = 1;
     assert!(verify_envelope(&ok2(&m), &p, None).is_ok());
     p.skew_secs = 0;
     let mut m = manifest(1);
     m.expires_at = NOW; // now >= expires_at
-    assert_eq!(verify_envelope(&ok2(&m), &p, None), Err(UpdateError::Expired));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &p, None),
+        Err(UpdateError::Expired)
+    );
     m.expires_at = NOW + 1;
     assert!(verify_envelope(&ok2(&m), &p, None).is_ok());
     m.expires_at = m.issued_at; // not after issued_at
-    assert_eq!(verify_envelope(&ok2(&m), &p, None), Err(UpdateError::InconsistentTimes));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &p, None),
+        Err(UpdateError::InconsistentTimes)
+    );
 }
 
 #[test]
@@ -168,12 +223,18 @@ fn max_validity_default_90_days_and_explicit_disable() {
     m.expires_at = m.issued_at + 90 * day;
     assert!(verify_envelope(&ok2(&m), &pol(&k, 2), None).is_ok());
     m.expires_at += 1;
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::ValidityTooLong));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::ValidityTooLong)
+    );
     let mut p = pol(&k, 2);
     p.max_validity = MaxValidity::Disabled;
     assert!(verify_envelope(&ok2(&m), &p, None).is_ok());
     p.max_validity = MaxValidity::Secs(10);
-    assert_eq!(verify_envelope(&ok2(&m), &p, None), Err(UpdateError::ValidityTooLong));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &p, None),
+        Err(UpdateError::ValidityTooLong)
+    );
 }
 
 #[test]
@@ -186,10 +247,16 @@ fn overflow_is_checked() {
     m.expires_at = u64::MAX;
     p.max_validity = MaxValidity::Disabled;
     // now + skew overflows: rejected, no panic
-    assert_eq!(verify_envelope(&ok2(&m), &p, None), Err(UpdateError::IssuedInFuture));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &p, None),
+        Err(UpdateError::IssuedInFuture)
+    );
     // max u64 times everywhere: expired, no panic
     p.skew_secs = 0;
-    assert_eq!(verify_envelope(&ok2(&m), &p, None), Err(UpdateError::Expired));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &p, None),
+        Err(UpdateError::Expired)
+    );
 }
 
 #[test]
@@ -203,9 +270,15 @@ fn rollback_matrix() {
     // same sequence, different content: fork
     let mut other = manifest(5);
     other.artifacts[0].size = 43;
-    assert_eq!(verify_envelope(&ok2(&other), &pol(&k, 2), Some(&prev)), Err(UpdateError::Fork));
+    assert_eq!(
+        verify_envelope(&ok2(&other), &pol(&k, 2), Some(&prev)),
+        Err(UpdateError::Fork)
+    );
     // lower: rollback
-    assert_eq!(verify_envelope(&ok2(&manifest(4)), &pol(&k, 2), Some(&prev)), Err(UpdateError::Rollback));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(4)), &pol(&k, 2), Some(&prev)),
+        Err(UpdateError::Rollback)
+    );
     // higher: ok
     let up = verify_envelope(&ok2(&manifest(6)), &pol(&k, 2), Some(&prev)).unwrap();
     assert!(!up.idempotent);
@@ -231,14 +304,30 @@ fn rejects_unknown_and_duplicate_fields_and_bad_input() {
     let k = keys();
     let good = String::from_utf8(ok2(&manifest(1))).unwrap();
     let unk = good.replacen("\"channel\"", "\"extra\":1,\"channel\"", 1);
-    assert_eq!(verify_envelope(unk.as_bytes(), &pol(&k, 2), None), Err(UpdateError::Malformed));
-    let dup = good.replacen("\"channel\":\"stable\"", "\"channel\":\"stable\",\"channel\":\"stable\"", 1);
+    assert_eq!(
+        verify_envelope(unk.as_bytes(), &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
+    let dup = good.replacen(
+        "\"channel\":\"stable\"",
+        "\"channel\":\"stable\",\"channel\":\"stable\"",
+        1,
+    );
     assert_ne!(dup, good);
-    assert_eq!(verify_envelope(dup.as_bytes(), &pol(&k, 2), None), Err(UpdateError::Malformed));
+    assert_eq!(
+        verify_envelope(dup.as_bytes(), &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
     let trailing = format!("{good} x");
-    assert_eq!(verify_envelope(trailing.as_bytes(), &pol(&k, 2), None), Err(UpdateError::Malformed));
+    assert_eq!(
+        verify_envelope(trailing.as_bytes(), &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
     for junk in [&b""[..], b"{}", b"null", b"\xff\xfe", b"[1]"] {
-        assert_eq!(verify_envelope(junk, &pol(&k, 2), None), Err(UpdateError::Malformed));
+        assert_eq!(
+            verify_envelope(junk, &pol(&k, 2), None),
+            Err(UpdateError::Malformed)
+        );
     }
 }
 
@@ -247,25 +336,43 @@ fn manifest_field_validation() {
     let k = keys();
     let mut m = manifest(1);
     m.format = "other".into();
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::BadFormat));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::BadFormat)
+    );
     let mut m = manifest(1);
     m.artifacts[0].sha256 = "AB".repeat(32);
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::BadManifestField));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::BadManifestField)
+    );
     let mut m = manifest(1);
     m.artifacts.push(m.artifacts[0].clone());
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::BadManifestField));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::BadManifestField)
+    );
     let mut m = manifest(1);
     m.artifacts.clear();
-    assert_eq!(verify_envelope(&ok2(&m), &pol(&k, 2), None), Err(UpdateError::BadManifestField));
+    assert_eq!(
+        verify_envelope(&ok2(&m), &pol(&k, 2), None),
+        Err(UpdateError::BadManifestField)
+    );
 }
 
 #[test]
 fn size_cap_exact() {
     let k = keys();
     let big = vec![b' '; MAX_ENVELOPE_BYTES + 1];
-    assert_eq!(verify_envelope(&big, &pol(&k, 2), None), Err(UpdateError::TooLarge));
+    assert_eq!(
+        verify_envelope(&big, &pol(&k, 2), None),
+        Err(UpdateError::TooLarge)
+    );
     let at = vec![b' '; MAX_ENVELOPE_BYTES];
-    assert_eq!(verify_envelope(&at, &pol(&k, 2), None), Err(UpdateError::Malformed));
+    assert_eq!(
+        verify_envelope(&at, &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
 }
 
 #[test]
@@ -314,10 +421,16 @@ fn bad_keyset_entries() {
     let mut k = keys();
     k[0].valid_from = 10;
     k[0].valid_until = 5;
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::BadKeySet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::BadKeySet)
+    );
     let mut k = keys();
     k[0].key_id = String::new();
-    assert_eq!(verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None), Err(UpdateError::BadKeySet));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(1)), &pol(&k, 2), None),
+        Err(UpdateError::BadKeySet)
+    );
 }
 
 fn mk_chan(seq: u64, chan: &str) -> Manifest {
@@ -330,10 +443,16 @@ fn mk_chan(seq: u64, chan: &str) -> Manifest {
 fn wrong_channel_rejected_before_signatures() {
     let k = keys();
     let e = ok2(&mk_chan(1, "beta"));
-    assert_eq!(verify_envelope(&e, &pol(&k, 2), None), Err(UpdateError::WrongChannel));
+    assert_eq!(
+        verify_envelope(&e, &pol(&k, 2), None),
+        Err(UpdateError::WrongChannel)
+    );
     // validly signed, but also garbage signature from an active key: channel error wins
     let bad = sign(&mk_chan(1, "beta"), &[("a", 99)]);
-    assert_eq!(verify_envelope(&bad, &pol(&k, 2), None), Err(UpdateError::WrongChannel));
+    assert_eq!(
+        verify_envelope(&bad, &pol(&k, 2), None),
+        Err(UpdateError::WrongChannel)
+    );
     let p = VerifyPolicy::new(&k, 2, NOW, "beta");
     assert!(verify_envelope(&e, &p, None).is_ok());
 }
@@ -346,13 +465,23 @@ fn state_is_per_channel() {
     let pb = VerifyPolicy::new(&k, 2, NOW, "beta");
     let b_env = ok2(&mk_chan(1, "beta"));
     // A's state does not constrain B and is not silently ignored
-    assert_eq!(verify_envelope(&b_env, &pb, Some(&a.state)), Err(UpdateError::StateChannelMismatch));
+    assert_eq!(
+        verify_envelope(&b_env, &pb, Some(&a.state)),
+        Err(UpdateError::StateChannelMismatch)
+    );
     // caller passes None for a first-seen channel: seq 1 is fine although A is at 9
     let b = verify_envelope(&b_env, &pb, None).unwrap();
     assert_eq!(b.state.channel, "beta");
-    assert!(verify_envelope(&ok2(&mk_chan(1, "beta")), &pb, Some(&b.state)).unwrap().idempotent);
+    assert!(
+        verify_envelope(&ok2(&mk_chan(1, "beta")), &pb, Some(&b.state))
+            .unwrap()
+            .idempotent
+    );
     // state for stable still works for stable
-    assert_eq!(verify_envelope(&ok2(&manifest(8)), &pol(&k, 2), Some(&a.state)), Err(UpdateError::Rollback));
+    assert_eq!(
+        verify_envelope(&ok2(&manifest(8)), &pol(&k, 2), Some(&a.state)),
+        Err(UpdateError::Rollback)
+    );
 }
 
 #[test]
@@ -360,15 +489,31 @@ fn invalid_expected_channel_is_bad_policy_channel() {
     let k = keys();
     for c in ["", ".", "..", ".x", "a/b", "a b", "é", &"x".repeat(65)] {
         let p = VerifyPolicy::new(&k, 2, NOW, c);
-        assert_eq!(verify_envelope(&ok2(&manifest(1)), &p, None), Err(UpdateError::BadPolicyChannel), "{c:?}");
+        assert_eq!(
+            verify_envelope(&ok2(&manifest(1)), &p, None),
+            Err(UpdateError::BadPolicyChannel),
+            "{c:?}"
+        );
     }
 }
 
 #[test]
 fn channel_and_name_and_count_limits() {
     let k = keys();
-    for (c, good) in [("a", true), ("A-z_0.9", true), (&"x".repeat(64)[..], true), (&"x".repeat(65)[..], false),
-        ("", false), (".", false), ("..", false), (".hid", false), ("a/b", false), ("a b", false), ("é", false), ("a\nb", false)] {
+    for (c, good) in [
+        ("a", true),
+        ("A-z_0.9", true),
+        (&"x".repeat(64)[..], true),
+        (&"x".repeat(65)[..], false),
+        ("", false),
+        (".", false),
+        ("..", false),
+        (".hid", false),
+        ("a/b", false),
+        ("a b", false),
+        ("é", false),
+        ("a\nb", false),
+    ] {
         let m = mk_chan(1, c);
         let p = VerifyPolicy::new(&k, 2, NOW, c);
         let r = verify_envelope(&ok2(&m), &p, None);
@@ -379,8 +524,20 @@ fn channel_and_name_and_count_limits() {
             assert_eq!(r, Err(UpdateError::BadManifestField), "{c:?}");
         }
     }
-    for (n, good) in [("a", true), ("pos-cli_1.2.tar.gz", true), (&"n".repeat(128)[..], true), (&"n".repeat(129)[..], false),
-        ("", false), (".", false), ("..", false), (".hidden", false), ("a/b", false), ("a b", false), ("é", false), ("a\u{0}b", false)] {
+    for (n, good) in [
+        ("a", true),
+        ("pos-cli_1.2.tar.gz", true),
+        (&"n".repeat(128)[..], true),
+        (&"n".repeat(129)[..], false),
+        ("", false),
+        (".", false),
+        ("..", false),
+        (".hidden", false),
+        ("a/b", false),
+        ("a b", false),
+        ("é", false),
+        ("a\u{0}b", false),
+    ] {
         let mut m = manifest(1);
         m.artifacts[0].name = n.into();
         let r = verify_envelope(&ok2(&m), &pol(&k, 2), None);
@@ -393,12 +550,20 @@ fn channel_and_name_and_count_limits() {
     let many = |n: usize| {
         let mut m = manifest(1);
         m.artifacts = (0..n)
-            .map(|i| Artifact { name: format!("f{i}"), version: "v".into(), sha256: "cd".repeat(32), size: 1 })
+            .map(|i| Artifact {
+                name: format!("f{i}"),
+                version: "v".into(),
+                sha256: "cd".repeat(32),
+                size: 1,
+            })
             .collect();
         m
     };
     assert!(verify_envelope(&ok2(&many(1024)), &pol(&k, 2), None).is_ok());
-    assert_eq!(verify_envelope(&ok2(&many(1025)), &pol(&k, 2), None), Err(UpdateError::BadManifestField));
+    assert_eq!(
+        verify_envelope(&ok2(&many(1025)), &pol(&k, 2), None),
+        Err(UpdateError::BadManifestField)
+    );
 }
 
 #[test]
@@ -408,16 +573,32 @@ fn signature_count_cap_boundary() {
     let msg = signed_bytes(&m).unwrap();
     let mk = |extra: usize| {
         let mut sigs = vec![
-            SignatureEntry { key_id: "a".into(), sig_hex: hex::encode(sk(1).sign(&msg).to_bytes()) },
-            SignatureEntry { key_id: "b".into(), sig_hex: hex::encode(sk(2).sign(&msg).to_bytes()) },
+            SignatureEntry {
+                key_id: "a".into(),
+                sig_hex: hex::encode(sk(1).sign(&msg).to_bytes()),
+            },
+            SignatureEntry {
+                key_id: "b".into(),
+                sig_hex: hex::encode(sk(2).sign(&msg).to_bytes()),
+            },
         ];
         for i in 0..extra {
-            sigs.push(SignatureEntry { key_id: format!("unknown{i}"), sig_hex: "00".repeat(64) });
+            sigs.push(SignatureEntry {
+                key_id: format!("unknown{i}"),
+                sig_hex: "00".repeat(64),
+            });
         }
-        serde_json::to_vec(&Envelope { manifest: m.clone(), signatures: sigs }).unwrap()
+        serde_json::to_vec(&Envelope {
+            manifest: m.clone(),
+            signatures: sigs,
+        })
+        .unwrap()
     };
     assert!(verify_envelope(&mk(254), &pol(&k, 2), None).is_ok()); // exactly 256 entries
-    assert_eq!(verify_envelope(&mk(255), &pol(&k, 2), None), Err(UpdateError::TooManySignatures)); // 257
+    assert_eq!(
+        verify_envelope(&mk(255), &pol(&k, 2), None),
+        Err(UpdateError::TooManySignatures)
+    ); // 257
 }
 
 #[test]
@@ -425,17 +606,43 @@ fn inactive_known_key_garbage_ignored_active_garbage_rejects() {
     let mut k = keys();
     let m = manifest(1);
     let msg = signed_bytes(&m).unwrap();
-    let good = |id: &str, seed: u8| SignatureEntry { key_id: id.into(), sig_hex: hex::encode(sk(seed).sign(&msg).to_bytes()) };
-    let garbage = |id: &str| SignatureEntry { key_id: id.into(), sig_hex: "zz".into() };
-    let enc = |s: Vec<SignatureEntry>| serde_json::to_vec(&Envelope { manifest: m.clone(), signatures: s }).unwrap();
+    let good = |id: &str, seed: u8| SignatureEntry {
+        key_id: id.into(),
+        sig_hex: hex::encode(sk(seed).sign(&msg).to_bytes()),
+    };
+    let garbage = |id: &str| SignatureEntry {
+        key_id: id.into(),
+        sig_hex: "zz".into(),
+    };
+    let enc = |s: Vec<SignatureEntry>| {
+        serde_json::to_vec(&Envelope {
+            manifest: m.clone(),
+            signatures: s,
+        })
+        .unwrap()
+    };
     k[2].retired = true;
-    assert!(verify_envelope(&enc(vec![good("a", 1), good("b", 2), garbage("c")]), &pol(&k, 2), None).is_ok());
+    assert!(verify_envelope(
+        &enc(vec![good("a", 1), good("b", 2), garbage("c")]),
+        &pol(&k, 2),
+        None
+    )
+    .is_ok());
     k[2].retired = false;
     k[2].valid_until = NOW; // out of window
-    assert!(verify_envelope(&enc(vec![good("a", 1), good("b", 2), garbage("c")]), &pol(&k, 2), None).is_ok());
+    assert!(verify_envelope(
+        &enc(vec![good("a", 1), good("b", 2), garbage("c")]),
+        &pol(&k, 2),
+        None
+    )
+    .is_ok());
     k[2].valid_until = u64::MAX;
     assert_eq!(
-        verify_envelope(&enc(vec![good("a", 1), good("b", 2), garbage("c")]), &pol(&k, 2), None),
+        verify_envelope(
+            &enc(vec![good("a", 1), good("b", 2), garbage("c")]),
+            &pol(&k, 2),
+            None
+        ),
         Err(UpdateError::BadSignature)
     );
 }
@@ -454,14 +661,23 @@ fn valid_manifest_at_exact_size_cap_and_one_over() {
     assert!(verify_envelope(&at, &pol(&k, 2), None).is_ok());
     let over = build(MAX_ENVELOPE_BYTES - base + 1);
     assert_eq!(over.len(), MAX_ENVELOPE_BYTES + 1);
-    assert_eq!(verify_envelope(&over, &pol(&k, 2), None), Err(UpdateError::TooLarge));
+    assert_eq!(
+        verify_envelope(&over, &pol(&k, 2), None),
+        Err(UpdateError::TooLarge)
+    );
 }
 
 #[test]
 fn deeply_nested_json_is_malformed_not_a_crash() {
     let k = keys();
     let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
-    assert_eq!(verify_envelope(deep.as_bytes(), &pol(&k, 2), None), Err(UpdateError::Malformed));
+    assert_eq!(
+        verify_envelope(deep.as_bytes(), &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
     let deep_obj = format!("{{\"manifest\":{}{}", "{\"a\":".repeat(50_000), "1");
-    assert_eq!(verify_envelope(deep_obj.as_bytes(), &pol(&k, 2), None), Err(UpdateError::Malformed));
+    assert_eq!(
+        verify_envelope(deep_obj.as_bytes(), &pol(&k, 2), None),
+        Err(UpdateError::Malformed)
+    );
 }

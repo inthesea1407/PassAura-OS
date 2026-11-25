@@ -60,14 +60,24 @@ impl PackageBackend for Fake {
         _stored: Option<(u64, &str)>,
         _mode: InstallMode,
     ) -> Result<InstallReport, PackageBackendError> {
-        assert!(staged.is_file(), "staged file must exist when the command runs");
+        assert!(
+            staged.is_file(),
+            "staged file must exist when the command runs"
+        );
         self.seen_paths.lock().unwrap().push(staged.to_path_buf());
         self.runs.fetch_add(1, Ordering::SeqCst);
         if let Some((code, message)) = self.fail_as.lock().unwrap().clone() {
             if code.is_none() && message == "NOT_STARTED" {
-                return Err(PackageBackendError::RunnerNotStarted { program: "dpkg".into(), message: "spawn failed".into() });
+                return Err(PackageBackendError::RunnerNotStarted {
+                    program: "dpkg".into(),
+                    message: "spawn failed".into(),
+                });
             }
-            return Err(PackageBackendError::RunnerFailure { program: "dpkg".into(), code, message });
+            return Err(PackageBackendError::RunnerFailure {
+                program: "dpkg".into(),
+                code,
+                message,
+            });
         }
         if *self.fail.lock().unwrap() {
             return Err(PackageBackendError::RunnerFailure {
@@ -77,7 +87,10 @@ impl PackageBackend for Fake {
             });
         }
         Ok(InstallReport {
-            command: PlannedCommand { program: "dpkg".into(), args: vec![] },
+            command: PlannedCommand {
+                program: "dpkg".into(),
+                args: vec![],
+            },
             executed: true,
         })
     }
@@ -94,7 +107,12 @@ pub fn signing_key() -> SigningKey {
 pub fn trusted() -> Keyring {
     let sk = signing_key();
     let pk = hex::encode(sk.verifying_key().to_bytes());
-    Keyring { keys: vec![KeyEntry { key_id: derive_key_id(&pk), public_key_hex: pk }] }
+    Keyring {
+        keys: vec![KeyEntry {
+            key_id: derive_key_id(&pk),
+            public_key_hex: pk,
+        }],
+    }
 }
 
 pub fn doc_with(seq: u64, entries: Vec<V2Entry>) -> V2Allowlist {
@@ -132,7 +150,11 @@ pub fn sign(doc: &mut V2Allowlist) {
 pub fn good_doc(seq: u64) -> V2Allowlist {
     doc_with(
         seq,
-        vec![V2Entry { name: PKG.into(), version: Some("14.1.0".into()), sha256: sha256_hex(CONTENT) }],
+        vec![V2Entry {
+            name: PKG.into(),
+            version: Some("14.1.0".into()),
+            sha256: sha256_hex(CONTENT),
+        }],
     )
 }
 
@@ -150,9 +172,17 @@ impl Env {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("src.deb");
         std::fs::write(&source, CONTENT).unwrap();
-        let mut paths = InstallPaths::new(dir.path().join("state.json"), dir.path().join("audit.jsonl"));
+        let mut paths = InstallPaths::new(
+            dir.path().join("state.json"),
+            dir.path().join("audit.jsonl"),
+        );
         paths.lock_timeout = Duration::from_millis(300);
-        Env { dir, paths, source, fake: Fake::default() }
+        Env {
+            dir,
+            paths,
+            source,
+            fake: Fake::default(),
+        }
     }
 
     /// A fresh pipeline over the same files and the same fake system, as if
@@ -161,17 +191,23 @@ impl Env {
         Pipeline::new(
             self.paths.clone(),
             self.fake.clone(),
-            LocalFileFetcher { path: self.source.clone() },
+            LocalFileFetcher {
+                path: self.source.clone(),
+            },
             StdFileOps,
         )
     }
 
     pub fn stored_seq(&self) -> Option<u64> {
-        RollbackStore::read_state_readonly(&self.paths.state).unwrap().map(|r| r.last_seq)
+        RollbackStore::read_state_readonly(&self.paths.state)
+            .unwrap()
+            .map(|r| r.last_seq)
     }
 
     pub fn state_digest(&self) -> Option<String> {
-        RollbackStore::read_state_readonly(&self.paths.state).unwrap().map(|r| r.last_digest_hex)
+        RollbackStore::read_state_readonly(&self.paths.state)
+            .unwrap()
+            .map(|r| r.last_digest_hex)
     }
 
     pub fn audit_events(&self) -> Vec<AuditEvent> {
@@ -200,7 +236,12 @@ impl Env {
 }
 
 pub fn req<'a>(doc: &'a V2Allowlist, trusted: &'a Keyring) -> pos_install::Request<'a> {
-    pos_install::Request { package: PKG, doc, trusted, now: NOW }
+    pos_install::Request {
+        package: PKG,
+        doc,
+        trusted,
+        now: NOW,
+    }
 }
 
 /// Collects every fault label a clean run hits.

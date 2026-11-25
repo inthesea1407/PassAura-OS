@@ -62,15 +62,7 @@ fn arb_subject_name() -> impl Strategy<Value = String> {
 
 /// An engine state plus a query drawn against it.
 /// `authenticated` is chosen, grants may or may not exist/cover.
-fn arb_engine_and_query() -> impl Strategy<
-    Value = (
-        PolicyEngine,
-        SubjectId,
-        String,
-        Action,
-        u64,
-    ),
-> {
+fn arb_engine_and_query() -> impl Strategy<Value = (PolicyEngine, SubjectId, String, Action, u64)> {
     (
         arb_subject_name(),
         prop::collection::vec((arb_resource(), arb_action(), any::<bool>()), 0..4),
@@ -268,4 +260,3 @@ proptest! {
         }
     }
 }
-

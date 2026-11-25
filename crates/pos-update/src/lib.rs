@@ -22,9 +22,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-pub mod flow;
 #[cfg(feature = "file-state")]
 pub mod file_state;
+pub mod flow;
 
 /// Domain-separation prefix (ends with LF) placed before the canonical manifest JSON.
 pub const SIGN_PREFIX: &[u8] = b"pos-update-manifest-v1\n";
@@ -214,8 +214,10 @@ impl std::error::Error for UpdateError {}
 fn sort_json(v: serde_json::Value) -> serde_json::Value {
     match v {
         serde_json::Value::Object(map) => {
-            let sorted: BTreeMap<String, serde_json::Value> =
-                map.into_iter().map(|(k, val)| (k, sort_json(val))).collect();
+            let sorted: BTreeMap<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, val)| (k, sort_json(val)))
+                .collect();
             serde_json::Value::Object(sorted.into_iter().collect())
         }
         serde_json::Value::Array(a) => {
@@ -298,7 +300,10 @@ fn check_policy(p: &VerifyPolicy<'_>) -> Result<(), UpdateError> {
 }
 
 fn check_time(m: &Manifest, p: &VerifyPolicy<'_>) -> Result<(), UpdateError> {
-    let latest_issue = p.now.checked_add(p.skew_secs).ok_or(UpdateError::IssuedInFuture)?;
+    let latest_issue = p
+        .now
+        .checked_add(p.skew_secs)
+        .ok_or(UpdateError::IssuedInFuture)?;
     if m.issued_at > latest_issue {
         return Err(UpdateError::IssuedInFuture);
     }
@@ -322,7 +327,10 @@ fn verify_sig(pk: &[u8; 32], msg: &[u8], sig_hex: &str) -> Result<(), UpdateErro
         return Err(UpdateError::BadSignature);
     }
     let raw = hex::decode(sig_hex).map_err(|_| UpdateError::BadSignature)?;
-    let arr: [u8; 64] = raw.as_slice().try_into().map_err(|_| UpdateError::BadSignature)?;
+    let arr: [u8; 64] = raw
+        .as_slice()
+        .try_into()
+        .map_err(|_| UpdateError::BadSignature)?;
     let vk = VerifyingKey::from_bytes(pk).map_err(|_| UpdateError::BadSignature)?;
     vk.verify_strict(msg, &Signature::from_bytes(&arr))
         .map_err(|_| UpdateError::BadSignature)

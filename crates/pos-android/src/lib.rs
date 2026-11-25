@@ -22,7 +22,10 @@ mod tests {
     use super::*;
     #[test]
     fn maps_known_and_denies_unknown() {
-        assert_eq!(map_permission("android.permission.CAMERA"), Some(Action::Camera));
+        assert_eq!(
+            map_permission("android.permission.CAMERA"),
+            Some(Action::Camera)
+        );
         assert_eq!(map_permission("android.permission.NOPE"), None);
     }
 }

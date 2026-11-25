@@ -6,9 +6,9 @@
 
 pub mod allowlist;
 pub mod allowlist_v2;
+pub mod linux_backend;
 pub mod migrate;
 pub mod names;
-pub mod linux_backend;
 pub mod rollback;
 pub use allowlist::{GateError, Keyring};
 
@@ -32,22 +32,47 @@ const NATIVE_MESSAGING_DIRS: &[&str] = &[
     "/etc/opt/edge/native-messaging-hosts/",
 ];
 
-const PM_WORDS: &[&str] = &["password manager", "password vault", "passwords", "autofill", "credential vault", "keepass", "passkey"];
+const PM_WORDS: &[&str] = &[
+    "password manager",
+    "password vault",
+    "passwords",
+    "autofill",
+    "credential vault",
+    "keepass",
+    "passkey",
+];
 
 /// Known password-manager package names (a seed list; observation below is
 /// what catches renamed ones).
 const KNOWN: &[&str] = &[
-    "keepassxc", "keepass2", "bitwarden", "1password", "lastpass", "dashlane",
-    "enpass", "nordpass", "proton-pass", "buttercup", "gopass", "pass", "passwordsafe",
+    "keepassxc",
+    "keepass2",
+    "bitwarden",
+    "1password",
+    "lastpass",
+    "dashlane",
+    "enpass",
+    "nordpass",
+    "proton-pass",
+    "buttercup",
+    "gopass",
+    "pass",
+    "passwordsafe",
 ];
 
 pub fn observe(f: &PackageFacts) -> Vec<Capability> {
     let mut caps = vec![];
     let lname = f.name.to_lowercase();
-    if KNOWN.iter().any(|k| lname == *k || lname.starts_with(&format!("{k}-"))) {
+    if KNOWN
+        .iter()
+        .any(|k| lname == *k || lname.starts_with(&format!("{k}-")))
+    {
         caps.push(Capability::PasswordVaultStore);
     }
-    if f.files.iter().any(|p| NATIVE_MESSAGING_DIRS.iter().any(|d| p.starts_with(d))) {
+    if f.files
+        .iter()
+        .any(|p| NATIVE_MESSAGING_DIRS.iter().any(|d| p.starts_with(d)))
+    {
         // Browser native-messaging hosts are how desktop password managers
         // reach browser autofill.
         caps.push(Capability::AutofillProvider);
@@ -55,9 +80,15 @@ pub fn observe(f: &PackageFacts) -> Vec<Capability> {
     for d in &f.desktop_entries {
         let l = d.to_lowercase();
         let relevant = l.lines().map(str::trim_start).filter(|x| {
-            x.starts_with("keywords") || x.starts_with("comment") || x.starts_with("genericname") || x.starts_with("categories")
+            x.starts_with("keywords")
+                || x.starts_with("comment")
+                || x.starts_with("genericname")
+                || x.starts_with("categories")
         });
-        if relevant.clone().any(|x| PM_WORDS.iter().any(|w| x.contains(w))) {
+        if relevant
+            .clone()
+            .any(|x| PM_WORDS.iter().any(|w| x.contains(w)))
+        {
             caps.push(Capability::PasswordVaultStore);
         }
     }
@@ -74,41 +105,68 @@ mod tests {
     use super::*;
 
     fn facts(name: &str, files: &[&str], desk: &[&str]) -> PackageFacts {
-        PackageFacts { name: name.into(), files: files.iter().map(|s| s.to_string()).collect(), desktop_entries: desk.iter().map(|s| s.to_string()).collect() }
+        PackageFacts {
+            name: name.into(),
+            files: files.iter().map(|s| s.to_string()).collect(),
+            desktop_entries: desk.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     #[test]
     fn known_manager_blocked() {
-        assert!(matches!(verdict(&facts("keepassxc", &[], &[]), true), Verdict::Block(_)));
+        assert!(matches!(
+            verdict(&facts("keepassxc", &[], &[]), true),
+            Verdict::Block(_)
+        ));
     }
 
     #[test]
     fn renamed_manager_caught_by_native_messaging_host() {
-        let f = facts("totally-innocent", &["/usr/lib/mozilla/native-messaging-hosts/x.json"], &[]);
+        let f = facts(
+            "totally-innocent",
+            &["/usr/lib/mozilla/native-messaging-hosts/x.json"],
+            &[],
+        );
         assert!(matches!(verdict(&f, true), Verdict::Block(_)));
     }
 
     #[test]
     fn renamed_manager_caught_by_desktop_entry() {
         let d = "[Desktop Entry]\nName=Notes+\nKeywords=vault;Password Manager;\n";
-        assert!(matches!(verdict(&facts("notes-plus", &[], &[d]), true), Verdict::Block(_)));
+        assert!(matches!(
+            verdict(&facts("notes-plus", &[], &[d]), true),
+            Verdict::Block(_)
+        ));
     }
 
     #[test]
     fn indented_desktop_keywords_still_caught() {
         let d = "[Desktop Entry]\nName=Notes+\n   Keywords[de]=Passwort;Password Manager;\n";
-        assert!(matches!(verdict(&facts("notes-plus", &[], &[d]), true), Verdict::Block(_)));
+        assert!(matches!(
+            verdict(&facts("notes-plus", &[], &[d]), true),
+            Verdict::Block(_)
+        ));
     }
 
     #[test]
     fn ordinary_package_allowed() {
         let d = "[Desktop Entry]\nName=Calc\nCategories=Utility;\n";
-        assert_eq!(verdict(&facts("gnome-calculator", &["/usr/bin/gnome-calculator"], &[d]), false), Verdict::Allow);
+        assert_eq!(
+            verdict(
+                &facts("gnome-calculator", &["/usr/bin/gnome-calculator"], &[d]),
+                false
+            ),
+            Verdict::Allow
+        );
     }
 
     #[test]
     fn passaura_allowed_only_when_licensed() {
-        let f = facts("passaura.premium", &["/usr/lib/mozilla/native-messaging-hosts/passaura.json"], &[]);
+        let f = facts(
+            "passaura.premium",
+            &["/usr/lib/mozilla/native-messaging-hosts/passaura.json"],
+            &[],
+        );
         assert_eq!(verdict(&f, true), Verdict::Allow);
         assert!(matches!(verdict(&f, false), Verdict::Block(_)));
     }

@@ -14,7 +14,12 @@ fn key() -> SigningKey {
 
 fn trusted(sk: &SigningKey) -> Keyring {
     let pk = hex::encode(sk.verifying_key().to_bytes());
-    Keyring { keys: vec![KeyEntry { key_id: derive_key_id(&pk), public_key_hex: pk }] }
+    Keyring {
+        keys: vec![KeyEntry {
+            key_id: derive_key_id(&pk),
+            public_key_hex: pk,
+        }],
+    }
 }
 
 fn v1_bytes(sk: &SigningKey) -> Vec<u8> {
@@ -25,8 +30,14 @@ fn v1_bytes(sk: &SigningKey) -> Vec<u8> {
         issued_at: 100,
         expires_at: 500,
         packages: vec![
-            PackageEntry { name: "curl".into(), version: "8".into() },
-            PackageEntry { name: "ripgrep".into(), version: "14".into() },
+            PackageEntry {
+                name: "curl".into(),
+                version: "8".into(),
+            },
+            PackageEntry {
+                name: "ripgrep".into(),
+                version: "14".into(),
+            },
         ],
     };
     d.sign(sk);
@@ -50,7 +61,10 @@ fn migrates_valid_v1_to_unsigned_v2_with_sequence_zero() {
     assert_eq!(v2.entries.len(), 2);
     assert_eq!(v2.entries[0].sha256, "aa".repeat(32));
     // The v1 signature is not carried over.
-    assert_eq!(verify_v2(&v2, 200, None).unwrap_err(), V2Error::SignatureInvalid);
+    assert_eq!(
+        verify_v2(&v2, 200, None).unwrap_err(),
+        V2Error::SignatureInvalid
+    );
     let trusted_ring = trusted(&sk);
     assert!(verify_v2_trusted(&v2, &trusted_ring, 200, None).is_err());
 }
@@ -104,7 +118,10 @@ fn untrusted_or_wrong_key_is_rejected() {
 fn tampered_or_expired_v1_is_rejected() {
     let sk = key();
     let mut d: AllowlistDoc = serde_json::from_slice(&v1_bytes(&sk)).unwrap();
-    d.packages.push(PackageEntry { name: "evil".into(), version: "1".into() });
+    d.packages.push(PackageEntry {
+        name: "evil".into(),
+        version: "1".into(),
+    });
     let tampered = serde_json::to_vec(&d).unwrap();
     let mut h = hashes();
     h.insert("evil@1".into(), "cc".repeat(32));
@@ -127,18 +144,31 @@ fn json_shapes_with_version_key_are_rejected_for_migration() {
     let sk = key();
     // Signing-module JSON shape.
     let b = br#"{"version":1,"issued_at":1,"expires_at":9,"key_id":"k","entries":[{"name":"a","publisher":"p","sha256":"00"}],"signature":"AA=="}"#;
-    assert!(matches!(migrate_text_v1(b, &trusted(&sk), &hashes(), NOW), Err(MigrateError::NotTextV1(_))));
+    assert!(matches!(
+        migrate_text_v1(b, &trusted(&sk), &hashes(), NOW),
+        Err(MigrateError::NotTextV1(_))
+    ));
     // parse_any-style JSON v1 shape.
-    let c = br#"{"version":1,"issued_at":1,"expires_at":9,"key_id":"k","entries":[],"signature":"00"}"#;
-    assert!(matches!(migrate_text_v1(c, &trusted(&sk), &hashes(), NOW), Err(MigrateError::NotTextV1(_))));
+    let c =
+        br#"{"version":1,"issued_at":1,"expires_at":9,"key_id":"k","entries":[],"signature":"00"}"#;
+    assert!(matches!(
+        migrate_text_v1(c, &trusted(&sk), &hashes(), NOW),
+        Err(MigrateError::NotTextV1(_))
+    ));
     // A v2 document is not v1 input either.
     let v2 = br#"{"format":"passaura-allowlist","version":2}"#;
-    assert!(matches!(migrate_text_v1(v2, &trusted(&sk), &hashes(), NOW), Err(MigrateError::NotTextV1(_))));
+    assert!(matches!(
+        migrate_text_v1(v2, &trusted(&sk), &hashes(), NOW),
+        Err(MigrateError::NotTextV1(_))
+    ));
     // Valid text-v1 plus an injected version key is refused (signature irrelevant).
     let mut v: serde_json::Value = serde_json::from_slice(&v1_bytes(&sk)).unwrap();
     v["version"] = serde_json::json!(1);
     let injected = serde_json::to_vec(&v).unwrap();
-    assert!(matches!(migrate_text_v1(&injected, &trusted(&sk), &hashes(), NOW), Err(MigrateError::NotTextV1(_))));
+    assert!(matches!(
+        migrate_text_v1(&injected, &trusted(&sk), &hashes(), NOW),
+        Err(MigrateError::NotTextV1(_))
+    ));
 }
 
 #[test]
@@ -150,10 +180,18 @@ fn key_with_mismatched_id_is_rejected() {
         signature_hex: String::new(),
         issued_at: 100,
         expires_at: 500,
-        packages: vec![PackageEntry { name: "curl".into(), version: "8".into() }],
+        packages: vec![PackageEntry {
+            name: "curl".into(),
+            version: "8".into(),
+        }],
     };
     d.sign(&sk);
-    let kr = Keyring { keys: vec![KeyEntry { key_id: "ed25519:custom-name".into(), public_key_hex: pk }] };
+    let kr = Keyring {
+        keys: vec![KeyEntry {
+            key_id: "ed25519:custom-name".into(),
+            public_key_hex: pk,
+        }],
+    };
     let mut h = BTreeMap::new();
     h.insert("curl@8".to_string(), "aa".repeat(32));
     assert!(matches!(

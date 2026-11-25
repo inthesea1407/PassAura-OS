@@ -80,7 +80,15 @@ pub struct AccessControl {
 
 impl AccessControl {
     pub fn new(book: InviteBook) -> Self {
-        Self { mode: AccessMode::FreeInvite, paid_scope: PaidScope::NewOnly, paid: Default::default(), issuance_paused: false, redemption_paused: false, book, events: vec![] }
+        Self {
+            mode: AccessMode::FreeInvite,
+            paid_scope: PaidScope::NewOnly,
+            paid: Default::default(),
+            issuance_paused: false,
+            redemption_paused: false,
+            book,
+            events: vec![],
+        }
     }
 
     // ---- admin actions ----
@@ -102,7 +110,12 @@ impl AccessControl {
         self.events.push(AdminEvent::ModeChanged(m));
         Ok(())
     }
-    pub fn set_paid_scope(&mut self, t: &AdminToken, now: u64, sc: PaidScope) -> Result<(), AdminError> {
+    pub fn set_paid_scope(
+        &mut self,
+        t: &AdminToken,
+        now: u64,
+        sc: PaidScope,
+    ) -> Result<(), AdminError> {
         Self::authorize(t, now, true)?;
         self.paid_scope = sc;
         self.events.push(AdminEvent::PaidScopeChanged(sc));
@@ -122,7 +135,12 @@ impl AccessControl {
         self.events.push(AdminEvent::IssuancePaused(p));
         Ok(())
     }
-    pub fn pause_redemption(&mut self, t: &AdminToken, now: u64, p: bool) -> Result<(), AdminError> {
+    pub fn pause_redemption(
+        &mut self,
+        t: &AdminToken,
+        now: u64,
+        p: bool,
+    ) -> Result<(), AdminError> {
         Self::authorize(t, now, true)?;
         self.redemption_paused = p;
         self.events.push(AdminEvent::RedemptionPaused(p));
@@ -207,7 +225,10 @@ mod tests {
         let t = AdminToken::verified_owner(0);
         let mut c = ctl();
         c.pause_issuance(&t, 1, true).unwrap();
-        assert!(matches!(c.issue("owner-seed", "a"), Err(AdminError::Denied(_))));
+        assert!(matches!(
+            c.issue("owner-seed", "a"),
+            Err(AdminError::Denied(_))
+        ));
         c.pause_issuance(&t, 1, false).unwrap();
         c.issue("owner-seed", "a").unwrap();
         c.pause_redemption(&t, 1, true).unwrap();
@@ -221,7 +242,10 @@ mod tests {
         let t = AdminToken::verified_owner(0);
         let mut c = ctl();
         c.set_mode(&t, 1, AccessMode::Paid).unwrap();
-        assert!(matches!(c.issue("owner-seed", "a"), Err(AdminError::Denied(_))));
+        assert!(matches!(
+            c.issue("owner-seed", "a"),
+            Err(AdminError::Denied(_))
+        ));
         assert!(c.has_access("owner-seed"));
         assert!(c.join_paid("new", false).is_err());
         assert!(c.join_paid("new", true).is_ok());
@@ -232,10 +256,16 @@ mod tests {
     fn support_cannot_change_mode_stale_session_rejected() {
         let mut c = ctl();
         let support = AdminToken::verified(Role::Support, 0);
-        assert_eq!(c.set_mode(&support, 1, AccessMode::Closed), Err(AdminError::NotOwner));
+        assert_eq!(
+            c.set_mode(&support, 1, AccessMode::Closed),
+            Err(AdminError::NotOwner)
+        );
         assert_eq!(c.revoke(&support, 1, "owner-seed"), Ok(true));
         let owner = AdminToken::verified_owner(0);
-        assert!(matches!(c.set_mode(&owner, REAUTH_WINDOW + 1, AccessMode::Paid), Err(AdminError::Denied(_))));
+        assert!(matches!(
+            c.set_mode(&owner, REAUTH_WINDOW + 1, AccessMode::Paid),
+            Err(AdminError::Denied(_))
+        ));
         assert_eq!(c.mode, AccessMode::FreeInvite);
     }
 
@@ -276,6 +306,9 @@ mod tests {
         assert_eq!(c.revoke(&t, 1, "owner-seed"), Ok(true));
         assert!(!c.has_access("owner-seed"));
         assert!(c.issue("owner-seed", "a").is_err());
-        assert_eq!(c.events, vec![AdminEvent::MemberRevoked("owner-seed".into())]);
+        assert_eq!(
+            c.events,
+            vec![AdminEvent::MemberRevoked("owner-seed".into())]
+        );
     }
 }

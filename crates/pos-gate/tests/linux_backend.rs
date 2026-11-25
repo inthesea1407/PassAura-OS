@@ -7,8 +7,8 @@ use pos_gate::allowlist_v2::{
     V2Keyring,
 };
 use pos_gate::linux_backend::{
-    AptDpkgBackend, CommandOutput, CommandRunner, FlatpakBackend,
-    InstallMode, PackageBackend, PackageBackendError, PlannedCommand,
+    AptDpkgBackend, CommandOutput, CommandRunner, FlatpakBackend, InstallMode, PackageBackend,
+    PackageBackendError, PlannedCommand,
 };
 
 struct FakeRunner {
@@ -41,11 +41,7 @@ impl FakeRunner {
 }
 
 impl CommandRunner for FakeRunner {
-    fn run(
-        &mut self,
-        program: &str,
-        args: &[String],
-    ) -> Result<CommandOutput, String> {
+    fn run(&mut self, program: &str, args: &[String]) -> Result<CommandOutput, String> {
         self.calls.push(PlannedCommand {
             program: program.into(),
             args: args.to_vec(),
@@ -87,8 +83,16 @@ fn fixture_with_sequence(sequence: u64) -> SignedFixture {
             }],
         },
         entries: vec![
-            V2Entry { name: "curl".into(), version: Some("8".into()), sha256: SHA.into() },
-            V2Entry { name: "org.example.App".into(), version: Some("1".into()), sha256: SHA.into() },
+            V2Entry {
+                name: "curl".into(),
+                version: Some("8".into()),
+                sha256: SHA.into(),
+            },
+            V2Entry {
+                name: "org.example.App".into(),
+                version: Some("1".into()),
+                sha256: SHA.into(),
+            },
         ],
         signature_hex: String::new(),
     };
@@ -96,7 +100,12 @@ fn fixture_with_sequence(sequence: u64) -> SignedFixture {
     doc.signature_hex = hex::encode(key.sign(&payload).to_bytes());
     SignedFixture {
         doc,
-        keys: Keyring { keys: vec![KeyEntry { key_id, public_key_hex: pk_hex }] },
+        keys: Keyring {
+            keys: vec![KeyEntry {
+                key_id,
+                public_key_hex: pk_hex,
+            }],
+        },
     }
 }
 
@@ -334,10 +343,7 @@ fn runner_failure_surfaces_typed_error() {
 
     assert!(matches!(
         result,
-        Err(PackageBackendError::RunnerFailure {
-            code: Some(42),
-            ..
-        })
+        Err(PackageBackendError::RunnerFailure { code: Some(42), .. })
     ));
 
     assert_eq!(backend.runner().calls.len(), 1);
@@ -392,8 +398,18 @@ fn flatpak_dry_run_does_not_execute() {
 fn flatpak_runner_failure_surfaces_typed_error() {
     let fixture = fixture();
     let mut backend = FlatpakBackend::new(FakeRunner::failing(), "flathub").unwrap();
-    let result = backend.install("org.example.App", &fixture.doc, &fixture.keys, 200, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::RunnerFailure { code: Some(42), .. })));
+    let result = backend.install(
+        "org.example.App",
+        &fixture.doc,
+        &fixture.keys,
+        200,
+        None,
+        InstallMode::Apply,
+    );
+    assert!(matches!(
+        result,
+        Err(PackageBackendError::RunnerFailure { code: Some(42), .. })
+    ));
     assert_eq!(backend.runner().calls.len(), 1);
     assert_eq!(backend.runner().calls[0].program, "flatpak");
 }
@@ -404,7 +420,14 @@ fn runner_spawn_error_is_an_error_not_success() {
     let mut runner = FakeRunner::successful();
     runner.result = Err("no such program".into());
     let mut backend = AptDpkgBackend::new(runner);
-    let result = backend.install("curl", &fixture.doc, &fixture.keys, 200, None, InstallMode::Apply);
+    let result = backend.install(
+        "curl",
+        &fixture.doc,
+        &fixture.keys,
+        200,
+        None,
+        InstallMode::Apply,
+    );
     assert!(result.is_err());
     assert_eq!(backend.runner().calls.len(), 1);
 }
@@ -414,8 +437,18 @@ fn verification_failure_wins_over_not_allowed() {
     // Expired document AND a package that is not listed: verification is reported.
     let fixture = fixture();
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    let result = backend.install("definitely-not-listed", &fixture.doc, &fixture.keys, 10_000_000, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    let result = backend.install(
+        "definitely-not-listed",
+        &fixture.doc,
+        &fixture.keys,
+        10_000_000,
+        None,
+        InstallMode::Apply,
+    );
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -423,7 +456,16 @@ fn verification_failure_wins_over_not_allowed() {
 fn dry_run_succeeds_even_if_runner_would_fail() {
     let fixture = fixture();
     let mut backend = AptDpkgBackend::new(FakeRunner::failing());
-    let report = backend.install("curl", &fixture.doc, &fixture.keys, 200, None, InstallMode::DryRun).unwrap();
+    let report = backend
+        .install(
+            "curl",
+            &fixture.doc,
+            &fixture.keys,
+            200,
+            None,
+            InstallMode::DryRun,
+        )
+        .unwrap();
     assert!(!report.executed);
     assert!(backend.runner().calls.is_empty());
 }
@@ -435,8 +477,18 @@ fn v1_shaped_document_cannot_reach_the_backend() {
     let mut relabelled = fixture.doc.clone();
     relabelled.version = 1;
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    let result = backend.install("curl", &relabelled, &fixture.keys, 200, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    let result = backend.install(
+        "curl",
+        &relabelled,
+        &fixture.keys,
+        200,
+        None,
+        InstallMode::Apply,
+    );
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -446,7 +498,10 @@ fn untrusted_signer_is_rejected_before_execution() {
     let empty = Keyring { keys: vec![] };
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
     let result = backend.install("curl", &fixture.doc, &empty, 200, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -454,10 +509,24 @@ fn untrusted_signer_is_rejected_before_execution() {
 fn tampered_entries_fail_signature_before_execution() {
     let fixture = fixture();
     let mut tampered = fixture.doc.clone();
-    tampered.entries.push(V2Entry { name: "evil".into(), version: None, sha256: SHA.into() });
+    tampered.entries.push(V2Entry {
+        name: "evil".into(),
+        version: None,
+        sha256: SHA.into(),
+    });
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    let result = backend.install("evil", &tampered, &fixture.keys, 200, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    let result = backend.install(
+        "evil",
+        &tampered,
+        &fixture.keys,
+        200,
+        None,
+        InstallMode::Apply,
+    );
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -466,8 +535,18 @@ fn downgrade_against_stored_sequence_is_rejected() {
     let older = fixture_with_sequence(2);
     let digest = canonical_digest_hex(&older.doc).unwrap();
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    let result = backend.install("curl", &older.doc, &older.keys, 200, Some((3, &digest)), InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    let result = backend.install(
+        "curl",
+        &older.doc,
+        &older.keys,
+        200,
+        Some((3, &digest)),
+        InstallMode::Apply,
+    );
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -476,10 +555,29 @@ fn same_sequence_with_different_digest_is_rejected_and_same_digest_accepted() {
     let f = fixture_with_sequence(2);
     let digest = canonical_digest_hex(&f.doc).unwrap();
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    assert!(backend.install("curl", &f.doc, &f.keys, 200, Some((2, &digest)), InstallMode::DryRun).is_ok());
+    assert!(backend
+        .install(
+            "curl",
+            &f.doc,
+            &f.keys,
+            200,
+            Some((2, &digest)),
+            InstallMode::DryRun
+        )
+        .is_ok());
     let other = "ff".repeat(32);
-    let r = backend.install("curl", &f.doc, &f.keys, 200, Some((2, &other)), InstallMode::DryRun);
-    assert!(matches!(r, Err(PackageBackendError::AllowlistVerification(_))), "{r:?}");
+    let r = backend.install(
+        "curl",
+        &f.doc,
+        &f.keys,
+        200,
+        Some((2, &other)),
+        InstallMode::DryRun,
+    );
+    assert!(
+        matches!(r, Err(PackageBackendError::AllowlistVerification(_))),
+        "{r:?}"
+    );
 }
 
 #[test]
@@ -492,8 +590,18 @@ fn trusted_key_with_same_id_but_different_public_key_is_rejected() {
         }],
     };
     let mut backend = AptDpkgBackend::new(FakeRunner::successful());
-    let result = backend.install("curl", &fixture.doc, &spoofed, 200, None, InstallMode::Apply);
-    assert!(matches!(result, Err(PackageBackendError::AllowlistVerification(_))), "{result:?}");
+    let result = backend.install(
+        "curl",
+        &fixture.doc,
+        &spoofed,
+        200,
+        None,
+        InstallMode::Apply,
+    );
+    assert!(
+        matches!(result, Err(PackageBackendError::AllowlistVerification(_))),
+        "{result:?}"
+    );
     assert!(backend.runner().calls.is_empty());
 }
 
@@ -526,10 +634,23 @@ mod exact_file_fate {
     #[test]
     fn only_runner_err_with_prefix_is_proof_of_not_started() {
         let m = format!("{RUNNER_NOT_STARTED_PREFIX}spawn failed");
-        assert!(matches!(go(Err(m.clone())), Err(PackageBackendError::RunnerNotStarted { .. })));
+        assert!(matches!(
+            go(Err(m.clone())),
+            Err(PackageBackendError::RunnerNotStarted { .. })
+        ));
         // Same text inside finished-command output is NOT proof.
-        let out = CommandOutput { success: false, code: None, message: m };
-        assert!(matches!(go(Ok(out)), Err(PackageBackendError::RunnerFailure { code: None, .. })));
-        assert!(matches!(go(Err("wait failed".into())), Err(PackageBackendError::RunnerFailure { code: None, .. })));
+        let out = CommandOutput {
+            success: false,
+            code: None,
+            message: m,
+        };
+        assert!(matches!(
+            go(Ok(out)),
+            Err(PackageBackendError::RunnerFailure { code: None, .. })
+        ));
+        assert!(matches!(
+            go(Err("wait failed".into())),
+            Err(PackageBackendError::RunnerFailure { code: None, .. })
+        ));
     }
 }

@@ -13,8 +13,12 @@ use crate::lock::{LockError, StateLock};
 use crate::stage::{StageError, Stager};
 use pos_core::audit::{append_planned_durable, plan_next_record, AuditEvent, AuditRecord};
 use pos_gate::allowlist::Keyring;
-use pos_gate::allowlist_v2::{canonical_digest_hex, verify_v2_trusted, V2Allowlist, V2Entry, V2Error};
-use pos_gate::linux_backend::{valid_package_name, InstallMode, PackageBackend, PackageBackendError};
+use pos_gate::allowlist_v2::{
+    canonical_digest_hex, verify_v2_trusted, V2Allowlist, V2Entry, V2Error,
+};
+use pos_gate::linux_backend::{
+    valid_package_name, InstallMode, PackageBackend, PackageBackendError,
+};
 use pos_gate::rollback::{FileOps, RollbackError, RollbackStore};
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -52,7 +56,10 @@ impl Fetcher for LocalFileFetcher {
             ));
         }
         if md.len() > MAX_PACKAGE_BYTES {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "package source is too large"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "package source is too large",
+            ));
         }
         fs::read(&self.path)
     }
@@ -73,7 +80,11 @@ pub struct InstallPaths {
 
 impl InstallPaths {
     pub fn new(state: impl Into<PathBuf>, audit: impl Into<PathBuf>) -> Self {
-        InstallPaths { state: state.into(), audit: audit.into(), lock_timeout: Duration::from_secs(5) }
+        InstallPaths {
+            state: state.into(),
+            audit: audit.into(),
+            lock_timeout: Duration::from_secs(5),
+        }
     }
 }
 
@@ -104,10 +115,14 @@ pub enum RecoveryStatus {
     ClosedAbandoned,
     /// The install command may or may not have run. Sequence NOT advanced.
     /// Needs an operator: retry (may repeat side effects) or abandon.
-    Indeterminate { attempt: String },
+    Indeterminate {
+        attempt: String,
+    },
     /// The installed attempt can no longer be committed because the stored
     /// sequence moved. Needs an operator (abandon).
-    Superseded { attempt: String },
+    Superseded {
+        attempt: String,
+    },
 }
 
 #[derive(Debug)]
@@ -119,7 +134,10 @@ pub enum InstallError {
     InvalidPackageName,
     InvalidEntry(String),
     NotAllowed,
-    HashMismatch { expected: String, actual: String },
+    HashMismatch {
+        expected: String,
+        actual: String,
+    },
     Fetch(String),
     Stage(StageError),
     Backend(PackageBackendError),
@@ -223,11 +241,17 @@ pub fn classify_failure(e: &PackageBackendError) -> CommandFate {
 }
 
 fn now_unix() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn new_attempt_id() -> String {
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let n = ID_COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{:x}-{:x}-{:x}", nanos, std::process::id(), n)
 }
@@ -285,7 +309,13 @@ pub struct Pipeline<B, F, O> {
 
 impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
     pub fn new(paths: InstallPaths, backend: B, fetcher: F, ops: O) -> Self {
-        Pipeline { paths, backend, fetcher, ops, fault: None }
+        Pipeline {
+            paths,
+            backend,
+            fetcher,
+            ops,
+            fault: None,
+        }
     }
 
     /// Fault injection for tests: the hook is called with a label after every
@@ -327,7 +357,10 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
 
     fn jappend(&mut self, attempt: &str, step: Step) -> Result<(), InstallError> {
         let label = format!("journal:{}", step_label(&step));
-        self.journal().append(&Entry { attempt: attempt.to_string(), step })?;
+        self.journal().append(&Entry {
+            attempt: attempt.to_string(),
+            step,
+        })?;
         self.hit(&label)
     }
 
@@ -379,7 +412,8 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
                 let r2 = plan_next_record(&audit, now_unix().max(0) as u64, event)
                     .map_err(|e| InstallError::Audit(e.to_string()))?;
                 self.jappend(attempt, Step::AuditIntent { record: r2.clone() })?;
-                append_planned_durable(&audit, &r2).map_err(|e| InstallError::Audit(e.to_string()))?;
+                append_planned_durable(&audit, &r2)
+                    .map_err(|e| InstallError::Audit(e.to_string()))?;
                 r2
             }
             Err(e) => return Err(InstallError::Audit(e.to_string())),
@@ -405,10 +439,7 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
 
     /// Verification and package checks, read-only. Returns the entry, the
     /// canonical digest and the stored rollback pair.
-    fn check_request(
-        &self,
-        req: &Request,
-    ) -> Result<Resolved, InstallError> {
+    fn check_request(&self, req: &Request) -> Result<Resolved, InstallError> {
         if !valid_package_name(req.package) {
             return Err(InstallError::InvalidPackageName);
         }
@@ -432,10 +463,19 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
             .ok_or(InstallError::NotAllowed)?;
         let sha = entry.sha256.to_ascii_lowercase();
         if sha.len() != 64 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err(InstallError::InvalidEntry("sha256 is not 64 hex characters".into()));
+            return Err(InstallError::InvalidEntry(
+                "sha256 is not 64 hex characters".into(),
+            ));
         }
         let digest = canonical_digest_hex(req.doc).map_err(InstallError::Verification)?;
-        Ok((V2Entry { sha256: sha, ..entry }, digest, stored_pair))
+        Ok((
+            V2Entry {
+                sha256: sha,
+                ..entry
+            },
+            digest,
+            stored_pair,
+        ))
     }
 
     /// Verification and local-file hash check only. Writes nothing and does
@@ -455,7 +495,10 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
             .map_err(|e| InstallError::Fetch(e.to_string()))?;
         let actual = sha256_hex(&bytes);
         if actual != entry.sha256 {
-            return Err(InstallError::HashMismatch { expected: entry.sha256, actual });
+            return Err(InstallError::HashMismatch {
+                expected: entry.sha256,
+                actual,
+            });
         }
         Ok(DryRunReport {
             package: req.package.to_string(),
@@ -472,8 +515,10 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
 
     pub fn install(&mut self, req: &Request) -> Result<Outcome, InstallError> {
         let _lock = StateLock::acquire(&self.paths.state, self.paths.lock_timeout)?;
-        if let s @ (RecoveryStatus::Indeterminate { .. } | RecoveryStatus::Superseded { .. }) = self.recover_locked()? {
-            return Err(InstallError::Blocked(s))
+        if let s @ (RecoveryStatus::Indeterminate { .. } | RecoveryStatus::Superseded { .. }) =
+            self.recover_locked()?
+        {
+            return Err(InstallError::Blocked(s));
         }
         self.run_attempt(req, None, None)
     }
@@ -486,7 +531,9 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
         let attempt = match self.recover_locked()? {
             RecoveryStatus::Indeterminate { attempt } => attempt,
             RecoveryStatus::Superseded { .. } => {
-                return Err(InstallError::RetryRefused("the attempt is superseded; abandon it".into()))
+                return Err(InstallError::RetryRefused(
+                    "the attempt is superseded; abandon it".into(),
+                ))
             }
             _ => return Err(InstallError::NothingToRecover),
         };
@@ -510,7 +557,10 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
         let bytes = self.stager().read_checked(&staged)?;
         let actual = sha256_hex(&bytes);
         if actual != entry.sha256 {
-            return Err(InstallError::HashMismatch { expected: entry.sha256, actual });
+            return Err(InstallError::HashMismatch {
+                expected: entry.sha256,
+                actual,
+            });
         }
         // The journal chains each attempt to the one before it, so an aborted
         // retry prelude stays in the chain between the base attempt and this one.
@@ -615,7 +665,10 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
                 let actual = sha256_hex(&bytes);
                 if actual != entry.sha256 {
                     self.fail(&attempt, FailKind::HashMismatch)?;
-                    return Err(InstallError::HashMismatch { expected: entry.sha256, actual });
+                    return Err(InstallError::HashMismatch {
+                        expected: entry.sha256,
+                        actual,
+                    });
                 }
                 self.jappend(&attempt, Step::Fetched)?;
                 let name = format!("{attempt}.deb");
@@ -654,7 +707,9 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
         self.hit("command:ran")?;
         self.jappend(&attempt, Step::Installed)?;
         match self.commit_forward(&attempt)? {
-            RecoveryStatus::ClosedCommitted => Ok(Outcome::Committed { sequence: req.doc.sequence }),
+            RecoveryStatus::ClosedCommitted => Ok(Outcome::Committed {
+                sequence: req.doc.sequence,
+            }),
             other => Err(InstallError::Blocked(other)),
         }
     }
@@ -675,8 +730,11 @@ impl<B: PackageBackend, F: Fetcher, O: FileOps> Pipeline<B, F, O> {
             self.hit("state:before_persist")?;
             match self.persist_sequence(&a) {
                 Ok(()) => {}
-                Err(RollbackError::DowngradeRejected { .. }) | Err(RollbackError::DigestMismatch { .. }) => {
-                    return Ok(RecoveryStatus::Superseded { attempt: attempt.to_string() });
+                Err(RollbackError::DowngradeRejected { .. })
+                | Err(RollbackError::DigestMismatch { .. }) => {
+                    return Ok(RecoveryStatus::Superseded {
+                        attempt: attempt.to_string(),
+                    });
                 }
                 Err(e) => return Err(InstallError::Rollback(e)),
             }

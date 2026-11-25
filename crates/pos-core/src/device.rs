@@ -48,7 +48,11 @@ impl DeviceRegistry {
     }
 
     /// Register a device as one of the first seed members.
-    pub fn register_seed_device(&mut self, a: &Attestation, now: u64) -> Result<usize, RegisterError> {
+    pub fn register_seed_device(
+        &mut self,
+        a: &Attestation,
+        now: u64,
+    ) -> Result<usize, RegisterError> {
         if !a.hardware_backed {
             return Err(RegisterError::NoAttestation);
         }
@@ -63,7 +67,10 @@ impl DeviceRegistry {
         if times.len() >= MAX_SEED_PER_BUCKET_PER_DAY {
             return Err(RegisterError::RateLimited);
         }
-        let n = self.book.register_seed(&a.device_hash).map_err(RegisterError::Invite)?;
+        let n = self
+            .book
+            .register_seed(&a.device_hash)
+            .map_err(RegisterError::Invite)?;
         self.attempts.get_mut(&a.source_bucket).unwrap().push(now);
         Ok(n)
     }
@@ -106,7 +113,8 @@ impl ChallengeStore {
     pub fn issue(&mut self, challenge: &str, now: u64) {
         // Drop expired challenges so abandoned ones do not pile up forever.
         self.open.retain(|_, exp| now < *exp);
-        self.open.insert(challenge.into(), now.saturating_add(CHALLENGE_TTL));
+        self.open
+            .insert(challenge.into(), now.saturating_add(CHALLENGE_TTL));
     }
     /// Number of challenges currently held (expired ones are removed on `issue`).
     pub fn open_count(&self) -> usize {
@@ -125,7 +133,11 @@ mod tests {
     use super::*;
 
     fn att(d: &str, b: &str, hw: bool) -> Attestation {
-        Attestation { device_hash: d.into(), hardware_backed: hw, source_bucket: b.into() }
+        Attestation {
+            device_hash: d.into(),
+            hardware_backed: hw,
+            source_bucket: b.into(),
+        }
     }
 
     #[test]
@@ -143,7 +155,10 @@ mod tests {
     #[test]
     fn emulator_or_unattested_rejected() {
         let mut r = DeviceRegistry::new();
-        assert_eq!(r.register_seed_device(&att("d1", "b", false), 0), Err(RegisterError::NoAttestation));
+        assert_eq!(
+            r.register_seed_device(&att("d1", "b", false), 0),
+            Err(RegisterError::NoAttestation)
+        );
     }
 
     #[test]
@@ -153,17 +168,26 @@ mod tests {
         assert_eq!(r.register_seed_device(&att("d1", "b2", true), 1), Ok(1)); // idempotent
         r.book.issue("d1", "c").unwrap();
         r.redeem_on_device("c", &att("d2", "b", true)).unwrap();
-        assert_eq!(r.register_seed_device(&att("d2", "b", true), 2), Err(RegisterError::DeviceAlreadyRegistered));
+        assert_eq!(
+            r.register_seed_device(&att("d2", "b", true), 2),
+            Err(RegisterError::DeviceAlreadyRegistered)
+        );
     }
 
     #[test]
     fn bucket_rate_limit_resets_after_a_day() {
         let mut r = DeviceRegistry::new();
         for i in 0..MAX_SEED_PER_BUCKET_PER_DAY {
-            r.register_seed_device(&att(&format!("d{i}"), "same", true), i as u64).unwrap();
+            r.register_seed_device(&att(&format!("d{i}"), "same", true), i as u64)
+                .unwrap();
         }
-        assert_eq!(r.register_seed_device(&att("x", "same", true), 10), Err(RegisterError::RateLimited));
-        assert!(r.register_seed_device(&att("x", "same", true), 2 * DAY).is_ok());
+        assert_eq!(
+            r.register_seed_device(&att("x", "same", true), 10),
+            Err(RegisterError::RateLimited)
+        );
+        assert!(r
+            .register_seed_device(&att("x", "same", true), 2 * DAY)
+            .is_ok());
     }
 
     #[test]
@@ -171,9 +195,15 @@ mod tests {
         let mut r = DeviceRegistry::new();
         r.register_seed_device(&att("seed", "b", true), 0).unwrap();
         r.book.issue("seed", "code1").unwrap();
-        assert_eq!(r.redeem_on_device("code1", &att("friend", "c", true)), Ok(()));
+        assert_eq!(
+            r.redeem_on_device("code1", &att("friend", "c", true)),
+            Ok(())
+        );
         r.book.issue("seed", "code2").unwrap();
-        assert_eq!(r.redeem_on_device("code2", &att("friend", "c", true)), Err(RegisterError::DeviceAlreadyRegistered));
+        assert_eq!(
+            r.redeem_on_device("code2", &att("friend", "c", true)),
+            Err(RegisterError::DeviceAlreadyRegistered)
+        );
     }
 
     #[test]

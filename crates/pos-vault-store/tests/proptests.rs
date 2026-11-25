@@ -12,7 +12,11 @@ impl Random for Seq {
         Ok(())
     }
 }
-const F: ArgonParams = ArgonParams { m_kib: FLOOR_M_KIB, t: FLOOR_T, p: FLOOR_P };
+const F: ArgonParams = ArgonParams {
+    m_kib: FLOOR_M_KIB,
+    t: FLOOR_T,
+    p: FLOOR_P,
+};
 const T: Tier = Tier::Gb2;
 
 proptest! {

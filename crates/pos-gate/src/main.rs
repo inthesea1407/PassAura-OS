@@ -2,8 +2,8 @@
 //! `file-list` has one installed path per line. Env POS_LICENSED=1 means an
 //! active PassAura Premium membership. Exit 0 = allow, 1 = block,
 //! 2 = usage error or unreadable input (callers must treat any non-zero as block).
-use pos_gate::{verdict, PackageFacts};
 use pos_core::blocking::Verdict;
+use pos_gate::{verdict, PackageFacts};
 
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -30,8 +30,14 @@ fn main() {
             }
         }
     }
-    let licensed = std::env::var("POS_LICENSED").map(|v| v == "1").unwrap_or(false);
-    let f = PackageFacts { name: a[1].clone(), files, desktop_entries };
+    let licensed = std::env::var("POS_LICENSED")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    let f = PackageFacts {
+        name: a[1].clone(),
+        files,
+        desktop_entries,
+    };
     match verdict(&f, licensed) {
         Verdict::Allow => println!("allow {}", f.name),
         Verdict::Block(why) => {

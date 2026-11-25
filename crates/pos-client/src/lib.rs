@@ -50,7 +50,6 @@ pub fn validate_hardware_id_hash(value: &str) -> bool {
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-
 // -----------------------------------------------------------------------------
 // Contract request/response types
 // -----------------------------------------------------------------------------
@@ -107,7 +106,6 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
-
 // -----------------------------------------------------------------------------
 // Error mapping
 // -----------------------------------------------------------------------------
@@ -157,7 +155,6 @@ pub enum ClientError {
     Cache(String),
 }
 
-
 // -----------------------------------------------------------------------------
 // HTTP transport
 // -----------------------------------------------------------------------------
@@ -167,11 +164,7 @@ pub enum ClientError {
 /// Implementations must preserve non-2xx status codes and their response bodies.
 /// Transport implementations must not retry internally.
 pub trait HttpTransport: Send + Sync {
-    fn post(
-        &self,
-        https_url: &str,
-        body_json: &str,
-    ) -> Result<HttpResponse, ClientError>;
+    fn post(&self, https_url: &str, body_json: &str) -> Result<HttpResponse, ClientError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,7 +172,6 @@ pub struct HttpResponse {
     pub status: u16,
     pub body: String,
 }
-
 
 // -----------------------------------------------------------------------------
 // Retry policy
@@ -216,7 +208,6 @@ fn backoff_delay(policy: &RetryPolicy, retry_index: usize) -> Duration {
         .saturating_mul(multiplier)
         .min(policy.max_delay)
 }
-
 
 // -----------------------------------------------------------------------------
 // Client
@@ -260,10 +251,7 @@ impl<T: HttpTransport> PosClient<T> {
     }
 
     /// Register a device.
-    pub fn register(
-        &self,
-        request: &RegisterRequest,
-    ) -> Result<RegisterResponse, ClientError> {
+    pub fn register(&self, request: &RegisterRequest) -> Result<RegisterResponse, ClientError> {
         if !validate_hardware_id_hash(&request.hardware_id_hash) {
             return Err(ClientError::InvalidRequest);
         }
@@ -278,10 +266,7 @@ impl<T: HttpTransport> PosClient<T> {
     }
 
     /// Redeem a Premium key.
-    pub fn redeem(
-        &self,
-        request: &RedeemRequest,
-    ) -> Result<RedeemResponse, ClientError> {
+    pub fn redeem(&self, request: &RedeemRequest) -> Result<RedeemResponse, ClientError> {
         if request.code.trim().is_empty() || !is_uuid(&request.device_id) {
             return Err(ClientError::InvalidRequest);
         }
@@ -302,8 +287,7 @@ impl<T: HttpTransport> PosClient<T> {
         url: &str,
         request: &R,
     ) -> Result<S, ClientError> {
-        let body = serde_json::to_string(request)
-            .map_err(|_| ClientError::InvalidRequest)?;
+        let body = serde_json::to_string(request).map_err(|_| ClientError::InvalidRequest)?;
 
         let attempts = self.retry.max_attempts.max(1);
 
@@ -315,8 +299,7 @@ impl<T: HttpTransport> PosClient<T> {
                     .map_err(|_| ClientError::InvalidResponse);
             }
 
-            let retryable = response.status == 429
-                || (500..=599).contains(&response.status);
+            let retryable = response.status == 429 || (500..=599).contains(&response.status);
 
             if retryable && attempt + 1 < attempts {
                 let delay = backoff_delay(&self.retry, attempt);
@@ -335,7 +318,6 @@ impl<T: HttpTransport> PosClient<T> {
     }
 }
 
-
 // -----------------------------------------------------------------------------
 // Contract validation
 // -----------------------------------------------------------------------------
@@ -345,10 +327,7 @@ impl<T: HttpTransport> PosClient<T> {
 /// This is a conservative validator, not a full standards-compliant URL parser.
 /// It rejects userinfo, whitespace, fragments, localhost and malformed authority.
 pub fn validate_https_url(input: &str) -> Result<(), ClientError> {
-    if input.is_empty()
-        || input.chars().any(char::is_whitespace)
-        || input.contains('#')
-    {
+    if input.is_empty() || input.chars().any(char::is_whitespace) || input.contains('#') {
         return Err(ClientError::InvalidUrl);
     }
 
@@ -366,15 +345,17 @@ pub fn validate_https_url(input: &str) -> Result<(), ClientError> {
         return Err(ClientError::InvalidUrl);
     }
 
-    if authority.chars().any(|c| {
-        !(c.is_ascii_alphanumeric()
-            || matches!(c, '.' | '-' | ':' | '[' | ']'))
-    }) {
+    if authority
+        .chars()
+        .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | ':' | '[' | ']')))
+    {
         return Err(ClientError::InvalidUrl);
     }
 
     // A port, if present, must be 1..=65535. (IPv6 literals are bracketed.)
-    let host_port = authority.rsplit_once(':').filter(|(h, _)| !h.ends_with(']') || h.contains(']'));
+    let host_port = authority
+        .rsplit_once(':')
+        .filter(|(h, _)| !h.ends_with(']') || h.contains(']'));
     if let Some((h, port)) = host_port {
         let is_v6_inner = h.starts_with('[') && !h.ends_with(']');
         if !is_v6_inner {
@@ -434,7 +415,6 @@ fn looks_like_rfc3339(value: &str) -> bool {
         && (value.ends_with('Z') || value.contains('+') || value.rfind('-').is_some_and(|i| i > 10))
 }
 
-
 // -----------------------------------------------------------------------------
 // Error mapping
 // -----------------------------------------------------------------------------
@@ -456,7 +436,6 @@ pub fn map_error(status: u16, body: &str) -> ClientError {
         _ => ClientError::HttpStatus(status),
     }
 }
-
 
 // -----------------------------------------------------------------------------
 // Local JSON cache
@@ -484,12 +463,9 @@ impl DeviceCache {
         self.is_expired_at(unix_now())
     }
 
-    pub fn save_json_file(
-        &self,
-        path: impl AsRef<Path>,
-    ) -> Result<(), ClientError> {
-        let bytes = serde_json::to_vec(self)
-            .map_err(|error| ClientError::Cache(error.to_string()))?;
+    pub fn save_json_file(&self, path: impl AsRef<Path>) -> Result<(), ClientError> {
+        let bytes =
+            serde_json::to_vec(self).map_err(|error| ClientError::Cache(error.to_string()))?;
 
         // Write to a sibling temp file, then rename, so an interrupted write
         // never leaves a half-written cache.
@@ -504,14 +480,10 @@ impl DeviceCache {
         result.map_err(|error| ClientError::Cache(error.to_string()))
     }
 
-    pub fn load_json_file(
-        path: impl AsRef<Path>,
-    ) -> Result<Self, ClientError> {
-        let bytes = fs::read(path)
-            .map_err(|error| ClientError::Cache(error.to_string()))?;
+    pub fn load_json_file(path: impl AsRef<Path>) -> Result<Self, ClientError> {
+        let bytes = fs::read(path).map_err(|error| ClientError::Cache(error.to_string()))?;
 
-        serde_json::from_slice(&bytes)
-            .map_err(|error| ClientError::Cache(error.to_string()))
+        serde_json::from_slice(&bytes).map_err(|error| ClientError::Cache(error.to_string()))
     }
 
     /// Return None when the cache has expired.
@@ -536,7 +508,6 @@ fn unix_now() -> u64 {
         .as_secs()
 }
 
-
 // -----------------------------------------------------------------------------
 // Optional ureq transport
 // -----------------------------------------------------------------------------
@@ -546,11 +517,7 @@ pub struct UreqTransport;
 
 #[cfg(feature = "ureq")]
 impl HttpTransport for UreqTransport {
-    fn post(
-        &self,
-        https_url: &str,
-        body_json: &str,
-    ) -> Result<HttpResponse, ClientError> {
+    fn post(&self, https_url: &str, body_json: &str) -> Result<HttpResponse, ClientError> {
         validate_https_url(https_url)?;
 
         // Finite timeouts so a stalled server cannot hang the app.
@@ -570,20 +537,15 @@ impl HttpTransport for UreqTransport {
                 body: response.into_string().unwrap_or_default(),
             }),
 
-            Err(ureq::Error::Status(status, response)) => {
-                Ok(HttpResponse {
-                    status,
-                    body: response.into_string().unwrap_or_default(),
-                })
-            }
+            Err(ureq::Error::Status(status, response)) => Ok(HttpResponse {
+                status,
+                body: response.into_string().unwrap_or_default(),
+            }),
 
-            Err(ureq::Error::Transport(error)) => {
-                Err(ClientError::Transport(error.to_string()))
-            }
+            Err(ureq::Error::Transport(error)) => Err(ClientError::Transport(error.to_string())),
         }
     }
 }
-
 
 // -----------------------------------------------------------------------------
 // Unit tests — fake transport only, no network
@@ -614,11 +576,7 @@ mod tests {
     }
 
     impl HttpTransport for FakeTransport {
-        fn post(
-            &self,
-            url: &str,
-            body: &str,
-        ) -> Result<HttpResponse, ClientError> {
+        fn post(&self, url: &str, body: &str) -> Result<HttpResponse, ClientError> {
             self.calls
                 .lock()
                 .unwrap()
@@ -680,9 +638,9 @@ mod tests {
         let value = salted_hardware_id_hash(b"salt", b"opaque-id");
 
         assert_eq!(value.len(), 64);
-        assert!(value.bytes().all(|b| {
-            b.is_ascii_digit() || (b'a'..=b'f').contains(&b)
-        }));
+        assert!(value
+            .bytes()
+            .all(|b| { b.is_ascii_digit() || (b'a'..=b'f').contains(&b) }));
     }
 
     #[test]
@@ -734,7 +692,10 @@ mod tests {
         let r = valid_redeem_request();
         let d = format!("{r:?}");
         assert!(!d.contains(&r.code));
-        let g = RegisterRequest { invite_code: "SECRET-INVITE".into(), hardware_id_hash: "h".into() };
+        let g = RegisterRequest {
+            invite_code: "SECRET-INVITE".into(),
+            hardware_id_hash: "h".into(),
+        };
         assert!(!format!("{g:?}").contains("SECRET-INVITE"));
     }
 
@@ -777,10 +738,7 @@ mod tests {
 
         let result = client.register(&valid_register_request()).unwrap();
 
-        assert_eq!(
-            result.device_id,
-            "123e4567-e89b-12d3-a456-426614174000"
-        );
+        assert_eq!(result.device_id, "123e4567-e89b-12d3-a456-426614174000");
     }
 
     #[test]
@@ -812,9 +770,7 @@ mod tests {
 
     #[test]
     fn register_rejects_invalid_device_uuid_response() {
-        let fake = FakeTransport::new(vec![success(
-            r#"{"device_id":"not-a-uuid"}"#,
-        )]);
+        let fake = FakeTransport::new(vec![success(r#"{"device_id":"not-a-uuid"}"#)]);
 
         let client = fake_client(fake);
 
@@ -826,23 +782,22 @@ mod tests {
 
     #[test]
     fn redeem_success_null() {
-        let fake = FakeTransport::new(vec![success(
-            r#"{"premium_until":null}"#,
-        )]);
+        let fake = FakeTransport::new(vec![success(r#"{"premium_until":null}"#)]);
 
         let client = fake_client(fake);
 
         assert_eq!(
-            client.redeem(&valid_redeem_request()).unwrap().premium_until,
+            client
+                .redeem(&valid_redeem_request())
+                .unwrap()
+                .premium_until,
             None
         );
     }
 
     #[test]
     fn redeem_success_timestamp() {
-        let fake = FakeTransport::new(vec![success(
-            r#"{"premium_until":"2030-01-01T00:00:00Z"}"#,
-        )]);
+        let fake = FakeTransport::new(vec![success(r#"{"premium_until":"2030-01-01T00:00:00Z"}"#)]);
 
         let client = fake_client(fake);
 
@@ -1033,10 +988,8 @@ mod tests {
 
     #[test]
     fn cache_json_roundtrip() {
-        let path = std::env::temp_dir().join(format!(
-            "pos-client-cache-{}.json",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("pos-client-cache-{}.json", std::process::id()));
 
         let cache = DeviceCache {
             device_id: "device".into(),
@@ -1053,10 +1006,8 @@ mod tests {
 
     #[test]
     fn expired_cache_returns_none() {
-        let path = std::env::temp_dir().join(format!(
-            "pos-client-expired-{}.json",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("pos-client-expired-{}.json", std::process::id()));
 
         let cache = DeviceCache {
             device_id: "device".into(),
@@ -1066,10 +1017,7 @@ mod tests {
 
         cache.save_json_file(&path).unwrap();
 
-        assert_eq!(
-            DeviceCache::load_valid_json_file(&path, 5).unwrap(),
-            None
-        );
+        assert_eq!(DeviceCache::load_valid_json_file(&path, 5).unwrap(), None);
 
         let _ = fs::remove_file(path);
     }

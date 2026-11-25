@@ -54,7 +54,10 @@ fn build() -> Value {
     })
 }
 
-const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors/audit_chain.json");
+const PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/vectors/audit_chain.json"
+);
 
 #[test]
 fn vectors_match_committed_file_and_implementation() {
@@ -67,9 +70,24 @@ fn vectors_match_committed_file_and_implementation() {
     let parsed: Value = serde_json::from_str(&committed).unwrap();
     for c in parsed["cases"].as_array().unwrap() {
         let r: Vec<AuditRecord> = serde_json::from_value(c["records"].clone()).unwrap();
-        assert_eq!(verdict(&r), c["expect"].as_str().unwrap(), "case {}", c["name"]);
+        assert_eq!(
+            verdict(&r),
+            c["expect"].as_str().unwrap(),
+            "case {}",
+            c["name"]
+        );
     }
-    let exp = |n: &str| parsed["cases"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap()["expect"].as_str().unwrap().to_string();
+    let exp = |n: &str| {
+        parsed["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == n)
+            .unwrap()["expect"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
     assert_eq!(exp("valid"), "ok");
     assert_eq!(exp("event_tampered"), "HashMismatch");
     assert_ne!(exp("middle_record_removed"), "ok");

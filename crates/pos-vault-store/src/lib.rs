@@ -32,8 +32,10 @@
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 pub use pos_crypto_suites::aead::Suite;
+use pos_crypto_suites::argon::{
+    derive_key, FLOOR_M_KIB as S_FLOOR_M, FLOOR_P as S_FLOOR_P, FLOOR_T as S_FLOOR_T, MAX_P, MAX_T,
+};
 pub use pos_crypto_suites::argon::{ArgonParams, Tier};
-use pos_crypto_suites::argon::{derive_key, FLOOR_M_KIB as S_FLOOR_M, FLOOR_P as S_FLOOR_P, FLOOR_T as S_FLOOR_T, MAX_P, MAX_T};
 use std::fmt;
 use zeroize::Zeroizing;
 
@@ -84,7 +86,10 @@ pub enum Error {
     /// The header names an AEAD id this crate does not know.
     UnsupportedAead(u8),
     /// The header names a known suite, but not the one the caller expects. Checked before the KDF.
-    SuiteMismatch { expected: u8, found: u8 },
+    SuiteMismatch {
+        expected: u8,
+        found: u8,
+    },
     UnsupportedKdf(u8),
     ParamBelowFloor(Param),
     ParamAboveCap(Param),
@@ -96,7 +101,10 @@ pub enum Error {
     EmptyPassphrase,
     PlaintextTooLarge,
     /// The authenticated envelope version is below the minimum the caller holds.
-    RollbackDetected { found: u64, min: u64 },
+    RollbackDetected {
+        found: u64,
+        min: u64,
+    },
     /// `rewrap` would exceed u64::MAX.
     VersionOverflow,
     Random,
@@ -124,12 +132,18 @@ pub struct WriteLimits {
 impl WriteLimits {
     /// Target reader defaults to the writer's own tier.
     pub fn new(writer: Tier) -> WriteLimits {
-        WriteLimits { writer, target_reader: writer }
+        WriteLimits {
+            writer,
+            target_reader: writer,
+        }
     }
     /// Explicit target. Whether the target may be above the writer is NOT restricted here: params must
     /// fit both ceilings in any case, so the smaller ceiling decides.
     pub fn with_target(writer: Tier, target_reader: Tier) -> WriteLimits {
-        WriteLimits { writer, target_reader }
+        WriteLimits {
+            writer,
+            target_reader,
+        }
     }
 }
 
@@ -197,13 +211,23 @@ fn derive_kek(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Re
     }
 }
 
-fn aead_seal(key: &[u8; 32], nonce: &[u8; NONCE_LEN], aad: &[u8], msg: &[u8]) -> Result<Vec<u8>, Error> {
+fn aead_seal(
+    key: &[u8; 32],
+    nonce: &[u8; NONCE_LEN],
+    aad: &[u8],
+    msg: &[u8],
+) -> Result<Vec<u8>, Error> {
     XChaCha20Poly1305::new(Key::from_slice(key))
         .encrypt(XNonce::from_slice(nonce), Payload { msg, aad })
         .map_err(|_| Error::Seal)
 }
 
-fn aead_open(key: &[u8; 32], nonce: &[u8], aad: &[u8], ct: &[u8]) -> Result<Zeroizing<Vec<u8>>, ()> {
+fn aead_open(
+    key: &[u8; 32],
+    nonce: &[u8],
+    aad: &[u8],
+    ct: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, ()> {
     XChaCha20Poly1305::new(Key::from_slice(key))
         .decrypt(XNonce::from_slice(nonce), Payload { msg: ct, aad })
         .map(Zeroizing::new)
@@ -266,10 +290,17 @@ fn parse_header(file: &[u8], expected: Suite) -> Result<Parsed<'_>, Error> {
         return Err(Error::UnsupportedAead(header[6]));
     }
     if header[6] != expected.id() {
-        return Err(Error::SuiteMismatch { expected: expected.id(), found: header[6] });
+        return Err(Error::SuiteMismatch {
+            expected: expected.id(),
+            found: header[6],
+        });
     }
     let (envelope, payload) = rest.split_at(ENVELOPE_LEN);
-    Ok(Parsed { header, envelope, payload })
+    Ok(Parsed {
+        header,
+        envelope,
+        payload,
+    })
 }
 
 fn parse_envelope_params(env: &[u8]) -> Result<(ArgonParams, [u8; SALT_LEN]), Error> {
@@ -284,7 +315,12 @@ fn parse_envelope_params(env: &[u8]) -> Result<(ArgonParams, [u8; SALT_LEN]), Er
 
 /// Checks bounds first, then derives the KEK and unwraps the DEK. `kdf` is a parameter only so a unit
 /// test can count calls; production passes `derive_kek(tier)`.
-fn unwrap_dek_with(pass: &[u8], p: &Parsed<'_>, tier: Tier, kdf: KdfFn<'_>) -> Result<Zeroizing<[u8; 32]>, Error> {
+fn unwrap_dek_with(
+    pass: &[u8],
+    p: &Parsed<'_>,
+    tier: Tier,
+    kdf: KdfFn<'_>,
+) -> Result<Zeroizing<[u8; 32]>, Error> {
     let (params, salt) = parse_envelope_params(p.envelope)?;
     check_params(&params, tier)?; // before the KDF
     let kek = kdf(pass, &salt, &params)?;
@@ -331,7 +367,15 @@ pub fn seal(
     limits: &WriteLimits,
     rng: &mut dyn Random,
 ) -> Result<Vec<u8>, Error> {
-    seal_with(pass, plaintext, suite, params, limits, rng, &derive_kek(limits.writer))
+    seal_with(
+        pass,
+        plaintext,
+        suite,
+        params,
+        limits,
+        rng,
+        &derive_kek(limits.writer),
+    )
 }
 
 fn seal_with(
@@ -366,7 +410,8 @@ fn seal_with(
             v.extend_from_slice(&ct);
             v
         }
-        Suite::L1 => pos_crypto_suites::aead::seal(Suite::L1, &dek, &header, plaintext).map_err(|_| Error::Seal)?,
+        Suite::L1 => pos_crypto_suites::aead::seal(Suite::L1, &dek, &header, plaintext)
+            .map_err(|_| Error::Seal)?,
     };
     let mut out = Vec::with_capacity(HEADER_LEN + ENVELOPE_LEN + payload.len());
     out.extend_from_slice(&header);
@@ -377,11 +422,22 @@ fn seal_with(
 
 /// Opens a file on a device of RAM tier `reader`, which must be the suite `expected`. The suite check and
 /// the parameter bounds both happen before the KDF runs.
-pub fn open(pass: &[u8], file: &[u8], expected: Suite, reader: Tier) -> Result<Zeroizing<Vec<u8>>, Error> {
+pub fn open(
+    pass: &[u8],
+    file: &[u8],
+    expected: Suite,
+    reader: Tier,
+) -> Result<Zeroizing<Vec<u8>>, Error> {
     open_with(pass, file, expected, reader, &derive_kek(reader))
 }
 
-fn open_with(pass: &[u8], file: &[u8], expected: Suite, reader: Tier, kdf: KdfFn<'_>) -> Result<Zeroizing<Vec<u8>>, Error> {
+fn open_with(
+    pass: &[u8],
+    file: &[u8],
+    expected: Suite,
+    reader: Tier,
+    kdf: KdfFn<'_>,
+) -> Result<Zeroizing<Vec<u8>>, Error> {
     open_min_version_with(pass, file, expected, reader, 0, kdf).map(|(plain, _)| plain)
 }
 
@@ -396,7 +452,14 @@ pub fn open_min_version(
     reader: Tier,
     min_version: u64,
 ) -> Result<(Zeroizing<Vec<u8>>, u64), Error> {
-    open_min_version_with(pass, file, expected, reader, min_version, &derive_kek(reader))
+    open_min_version_with(
+        pass,
+        file,
+        expected,
+        reader,
+        min_version,
+        &derive_kek(reader),
+    )
 }
 
 fn open_min_version_with(
@@ -411,7 +474,10 @@ fn open_min_version_with(
     let dek = unwrap_dek_with(pass, &p, reader, kdf)?;
     let found = envelope_version(p.envelope);
     if found < min_version {
-        return Err(Error::RollbackDetected { found, min: min_version });
+        return Err(Error::RollbackDetected {
+            found,
+            min: min_version,
+        });
     }
     let plain = open_payload(expected, &dek, &p)?;
     Ok((plain, found))
@@ -432,7 +498,16 @@ pub fn rewrap(
     limits: &WriteLimits,
     rng: &mut dyn Random,
 ) -> Result<Vec<u8>, Error> {
-    rewrap_with(old_pass, new_pass, file, expected, new_params, limits, rng, &derive_kek(limits.writer))
+    rewrap_with(
+        old_pass,
+        new_pass,
+        file,
+        expected,
+        new_params,
+        limits,
+        rng,
+        &derive_kek(limits.writer),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -453,7 +528,9 @@ fn rewrap_with(
     {
         let _plain = open_payload(expected, &dek, &p)?;
     }
-    let next = envelope_version(p.envelope).checked_add(1).ok_or(Error::VersionOverflow)?;
+    let next = envelope_version(p.envelope)
+        .checked_add(1)
+        .ok_or(Error::VersionOverflow)?;
     let env = build_envelope(new_pass, new_params, p.header, &dek, next, rng, kdf)?;
     let mut out = Vec::with_capacity(file.len());
     out.extend_from_slice(p.header);
@@ -468,7 +545,9 @@ pub fn read_file(path: &std::path::Path) -> Result<Vec<u8>, Error> {
     let max = (MIN_FILE_LEN + MAX_PLAINTEXT_LEN + L1_OVERHEAD) as u64;
     let f = std::fs::File::open(path).map_err(|e| Error::Io(e.kind()))?;
     let mut buf = Vec::new();
-    f.take(max + 1).read_to_end(&mut buf).map_err(|e| Error::Io(e.kind()))?;
+    f.take(max + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| Error::Io(e.kind()))?;
     if buf.len() as u64 > max {
         return Err(Error::PlaintextTooLarge);
     }
@@ -481,9 +560,14 @@ pub fn read_file(path: &std::path::Path) -> Result<Vec<u8>, Error> {
 pub fn write_file_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), Error> {
     let mut last = Error::Io(std::io::ErrorKind::AlreadyExists);
     for _ in 0..4 {
-        let suffix = rand_array::<8>(&mut OsRandom)?.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        let suffix = rand_array::<8>(&mut OsRandom)?
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
         match write_atomic_with_suffix(path, bytes, &suffix) {
-            Err(Error::Io(std::io::ErrorKind::AlreadyExists)) => last = Error::Io(std::io::ErrorKind::AlreadyExists),
+            Err(Error::Io(std::io::ErrorKind::AlreadyExists)) => {
+                last = Error::Io(std::io::ErrorKind::AlreadyExists)
+            }
             other => return other,
         }
     }
@@ -518,18 +602,33 @@ type Hook<'a> = &'a mut dyn FnMut(WriteStep) -> HookAction;
 
 /// Like `write_file_atomic`, with a fault hook. Only with the `fault-injection` feature.
 #[cfg(feature = "fault-injection")]
-pub fn write_file_atomic_with_hook(path: &std::path::Path, bytes: &[u8], hook: Hook<'_>) -> Result<(), Error> {
-    let suffix = rand_array::<8>(&mut OsRandom)?.iter().map(|b| format!("{b:02x}")).collect::<String>();
+pub fn write_file_atomic_with_hook(
+    path: &std::path::Path,
+    bytes: &[u8],
+    hook: Hook<'_>,
+) -> Result<(), Error> {
+    let suffix = rand_array::<8>(&mut OsRandom)?
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<String>();
     write_atomic_inner(path, bytes, &suffix, hook)
 }
 
 #[cfg(feature = "fault-injection")]
-fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) -> Result<(), Error> {
+fn write_atomic_with_suffix(
+    path: &std::path::Path,
+    bytes: &[u8],
+    suffix: &str,
+) -> Result<(), Error> {
     write_atomic_inner(path, bytes, suffix, &mut |_| HookAction::Continue)
 }
 
 #[cfg(not(feature = "fault-injection"))]
-fn write_atomic_with_suffix(path: &std::path::Path, bytes: &[u8], suffix: &str) -> Result<(), Error> {
+fn write_atomic_with_suffix(
+    path: &std::path::Path,
+    bytes: &[u8],
+    suffix: &str,
+) -> Result<(), Error> {
     write_atomic_inner(path, bytes, suffix)
 }
 
@@ -556,7 +655,9 @@ fn write_atomic_inner(
         Some(d) if !d.as_os_str().is_empty() => d.to_path_buf(),
         _ => std::path::PathBuf::from("."),
     };
-    let name = path.file_name().ok_or(Error::Io(std::io::ErrorKind::InvalidInput))?;
+    let name = path
+        .file_name()
+        .ok_or(Error::Io(std::io::ErrorKind::InvalidInput))?;
     let mut tmp_name = name.to_os_string();
     tmp_name.push(format!(".pavs-tmp-{suffix}"));
     let tmp = dir.join(tmp_name);
@@ -600,7 +701,10 @@ fn write_atomic_inner(
         act((hook)(WriteStep::AfterRename))?;
         #[cfg(unix)]
         {
-            std::fs::File::open(&dir).map_err(io)?.sync_all().map_err(io)?;
+            std::fs::File::open(&dir)
+                .map_err(io)?
+                .sync_all()
+                .map_err(io)?;
         }
         #[cfg(feature = "fault-injection")]
         act((hook)(WriteStep::AfterDirSync))?;
@@ -622,7 +726,11 @@ mod tests {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
-    const F: ArgonParams = ArgonParams { m_kib: FLOOR_M_KIB, t: FLOOR_T, p: FLOOR_P };
+    const F: ArgonParams = ArgonParams {
+        m_kib: FLOOR_M_KIB,
+        t: FLOOR_T,
+        p: FLOOR_P,
+    };
 
     struct Seq(u8);
     impl Random for Seq {
@@ -641,7 +749,9 @@ mod tests {
 
     /// Real Argon2 output, memoized per (pass, salt, params). Same results as the real KDF for every
     /// input, so a flip in salt or params still gets a different, real KEK. Only repeated work is skipped.
-    fn memo_kdf(tier: Tier) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> {
+    fn memo_kdf(
+        tier: Tier,
+    ) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> {
         type CacheKey = (Vec<u8>, [u8; SALT_LEN], u32, u32, u32);
         let cache: RefCell<HashMap<CacheKey, [u8; 32]>> = RefCell::new(HashMap::new());
         let real = derive_kek(tier);
@@ -666,7 +776,10 @@ mod tests {
             6 => matches!(e, Error::UnsupportedAead(_) | Error::SuiteMismatch { .. }),
             7..=22 => *e == Error::EnvelopeAuth,
             _ if i == env => matches!(e, Error::UnsupportedKdf(_)),
-            _ if i < env + 13 => matches!(e, Error::EnvelopeAuth | Error::ParamBelowFloor(_) | Error::ParamAboveCap(_)),
+            _ if i < env + 13 => matches!(
+                e,
+                Error::EnvelopeAuth | Error::ParamBelowFloor(_) | Error::ParamAboveCap(_)
+            ),
             _ if i < pay => *e == Error::EnvelopeAuth,
             _ => *e == Error::PayloadAuth,
         }
@@ -689,8 +802,12 @@ mod tests {
             for bit in [0u8, 7] {
                 let mut g = file.clone();
                 g[i] ^= 1 << bit;
-                let e = open_with(b"pw", &g, Suite::V1, Tier::Gb2, &kdf).expect_err(&format!("offset {i} bit {bit} accepted"));
-                assert!(class_ok(i, &e), "offset {i} bit {bit}: unexpected class {e:?}");
+                let e = open_with(b"pw", &g, Suite::V1, Tier::Gb2, &kdf)
+                    .expect_err(&format!("offset {i} bit {bit} accepted"));
+                assert!(
+                    class_ok(i, &e),
+                    "offset {i} bit {bit}: unexpected class {e:?}"
+                );
             }
         }
     }
@@ -705,7 +822,8 @@ mod tests {
             for bit in [0u8, 7] {
                 let mut g = file.clone();
                 g[i] ^= 1 << bit;
-                let e = open_with(b"pw", &g, Suite::L1, Tier::Gb2, &kdf).expect_err(&format!("L1 offset {i} bit {bit} accepted"));
+                let e = open_with(b"pw", &g, Suite::L1, Tier::Gb2, &kdf)
+                    .expect_err(&format!("L1 offset {i} bit {bit} accepted"));
                 assert!(class_ok(i, &e), "L1 offset {i} bit {bit}: {e:?}");
             }
         }
@@ -719,7 +837,25 @@ mod tests {
         let file = tiny();
         let kdf = memo_kdf(Tier::Gb2);
         let pay = HEADER_LEN + ENVELOPE_LEN;
-        for i in [0, 4, 7, 22, HEADER_LEN, HEADER_LEN + 1, HEADER_LEN + 4, HEADER_LEN + 8, HEADER_LEN + 12, HEADER_LEN + 13, HEADER_LEN + 29, HEADER_LEN + 53, HEADER_LEN + 54, HEADER_LEN + 100, pay, pay + 24, file.len() - 1] {
+        for i in [
+            0,
+            4,
+            7,
+            22,
+            HEADER_LEN,
+            HEADER_LEN + 1,
+            HEADER_LEN + 4,
+            HEADER_LEN + 8,
+            HEADER_LEN + 12,
+            HEADER_LEN + 13,
+            HEADER_LEN + 29,
+            HEADER_LEN + 53,
+            HEADER_LEN + 54,
+            HEADER_LEN + 100,
+            pay,
+            pay + 24,
+            file.len() - 1,
+        ] {
             let mut g = file.clone();
             g[i] ^= 1;
             let a = open(b"pw", &g, Suite::V1, Tier::Gb2).unwrap_err();
@@ -740,14 +876,17 @@ mod tests {
                 for bit in [0u8, 7] {
                     let mut g = file.clone();
                     g[i] ^= 1 << bit;
-                    let e = open(b"pw", &g, suite, Tier::Gb2).expect_err(&format!("{suite:?} offset {i} bit {bit} accepted"));
+                    let e = open(b"pw", &g, suite, Tier::Gb2)
+                        .expect_err(&format!("{suite:?} offset {i} bit {bit} accepted"));
                     assert!(class_ok(i, &e), "{suite:?} offset {i} bit {bit}: {e:?}");
                 }
             }
         }
     }
 
-    fn counting(calls: &Cell<u32>) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> + '_ {
+    fn counting(
+        calls: &Cell<u32>,
+    ) -> impl Fn(&[u8], &[u8; SALT_LEN], &ArgonParams) -> Result<Key32, Error> + '_ {
         move |_, _, _| {
             calls.set(calls.get() + 1);
             Ok(Zeroizing::new([0u8; 32]))
@@ -784,22 +923,41 @@ mod tests {
             let calls = Cell::new(0);
             let parsed = parse_header(&g, Suite::V1).unwrap();
             let r = unwrap_dek_with(b"pw", &parsed, tier, &counting(&calls));
-            assert!(matches!(r, Err(Error::ParamBelowFloor(_)) | Err(Error::ParamAboveCap(_))), "{tier:?} {m} {t} {p}");
+            assert!(
+                matches!(
+                    r,
+                    Err(Error::ParamBelowFloor(_)) | Err(Error::ParamAboveCap(_))
+                ),
+                "{tier:?} {m} {t} {p}"
+            );
             assert_eq!(calls.get(), 0, "KDF ran for {tier:?} m={m} t={t} p={p}");
         }
         // Wrong expected suite: refused at the header, before any KDF closure could run.
         let calls = Cell::new(0);
         assert_eq!(
             open_with(b"pw", &file, Suite::L1, Tier::Gb2, &counting(&calls)).unwrap_err(),
-            Error::SuiteMismatch { expected: 2, found: 1 }
+            Error::SuiteMismatch {
+                expected: 2,
+                found: 1
+            }
         );
         assert_eq!(calls.get(), 0);
         // In bounds at the edges of each tier: exactly one call (the fake key then fails the tag).
-        for tier in [Tier::Gb2, Tier::Gb4, Tier::Gb8, Tier::Gb16, Tier::Gb32, Tier::Gb64] {
+        for tier in [
+            Tier::Gb2,
+            Tier::Gb4,
+            Tier::Gb8,
+            Tier::Gb16,
+            Tier::Gb32,
+            Tier::Gb64,
+        ] {
             let g = with_params(&file, tier.ceiling_m_kib(), CAP_T, CAP_P);
             let calls = Cell::new(0);
             let parsed = parse_header(&g, Suite::V1).unwrap();
-            assert_eq!(unwrap_dek_with(b"pw", &parsed, tier, &counting(&calls)).unwrap_err(), Error::EnvelopeAuth);
+            assert_eq!(
+                unwrap_dek_with(b"pw", &parsed, tier, &counting(&calls)).unwrap_err(),
+                Error::EnvelopeAuth
+            );
             assert_eq!(calls.get(), 1, "{tier:?}");
         }
         // A file at the Gb4 ceiling is refused by a Gb2 reader before the KDF.
@@ -815,11 +973,24 @@ mod tests {
 
     #[test]
     fn writer_params_must_fit_writer_and_target() {
-        let big = ArgonParams { m_kib: Tier::Gb4.ceiling_m_kib(), t: 3, p: 4 };
+        let big = ArgonParams {
+            m_kib: Tier::Gb4.ceiling_m_kib(),
+            t: 3,
+            p: 4,
+        };
         let calls = Cell::new(0);
         let k = counting(&calls);
         // Writer Gb4, target Gb4: fits. Target Gb2: does not fit the target, error, no adjustment.
-        assert!(seal_with(b"pw", b"x", Suite::V1, &big, &WriteLimits::new(Tier::Gb4), &mut Seq(0), &k).is_ok());
+        assert!(seal_with(
+            b"pw",
+            b"x",
+            Suite::V1,
+            &big,
+            &WriteLimits::new(Tier::Gb4),
+            &mut Seq(0),
+            &k
+        )
+        .is_ok());
         assert_eq!(calls.get(), 1);
         let lower = WriteLimits::with_target(Tier::Gb4, Tier::Gb2);
         assert_eq!(
@@ -837,7 +1008,16 @@ mod tests {
 
     #[test]
     fn rewrap_at_max_version_is_refused_not_wrapped() {
-        let file = seal_with(b"pw", b"x", Suite::V1, &F, &lim(), &mut Seq(0), &memo_kdf(Tier::Gb2)).unwrap();
+        let file = seal_with(
+            b"pw",
+            b"x",
+            Suite::V1,
+            &F,
+            &lim(),
+            &mut Seq(0),
+            &memo_kdf(Tier::Gb2),
+        )
+        .unwrap();
         let p = parse_header(&file, Suite::V1).unwrap();
         let kdf = memo_kdf(Tier::Gb2);
         let dek = unwrap_dek_with(b"pw", &p, Tier::Gb2, &kdf).unwrap();
@@ -845,10 +1025,21 @@ mod tests {
         let mut at_max = p.header.to_vec();
         at_max.extend_from_slice(&env);
         at_max.extend_from_slice(p.payload);
-        let (_, v) = open_min_version_with(b"pw", &at_max, Suite::V1, Tier::Gb2, u64::MAX, &kdf).unwrap();
+        let (_, v) =
+            open_min_version_with(b"pw", &at_max, Suite::V1, Tier::Gb2, u64::MAX, &kdf).unwrap();
         assert_eq!(v, u64::MAX);
         assert_eq!(
-            rewrap_with(b"pw", b"pw2", &at_max, Suite::V1, &F, &lim(), &mut Seq(9), &kdf).unwrap_err(),
+            rewrap_with(
+                b"pw",
+                b"pw2",
+                &at_max,
+                Suite::V1,
+                &F,
+                &lim(),
+                &mut Seq(9),
+                &kdf
+            )
+            .unwrap_err(),
             Error::VersionOverflow
         );
     }
@@ -866,7 +1057,11 @@ mod tests {
             assert_eq!(e, Error::Io(std::io::ErrorKind::AlreadyExists));
             assert_eq!(std::fs::read(&target).unwrap(), b"keep");
             assert!(!dest.exists());
-            assert!(d.path().join("vault.pavs.pavs-tmp-aa").symlink_metadata().is_ok());
+            assert!(d
+                .path()
+                .join("vault.pavs.pavs-tmp-aa")
+                .symlink_metadata()
+                .is_ok());
         }
     }
 

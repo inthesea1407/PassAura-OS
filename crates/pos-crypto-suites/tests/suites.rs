@@ -4,16 +4,26 @@ use pos_crypto_suites::hybrid::{self, HybridSecret};
 use pos_crypto_suites::CryptoError;
 
 fn hex(s: &str) -> Vec<u8> {
-    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
 }
 const DEK: [u8; 32] = [7u8; 32];
 
 #[test]
 fn x25519_rfc7748_vector() {
-    let k: [u8; 32] = hex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4").try_into().unwrap();
-    let u: [u8; 32] = hex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c").try_into().unwrap();
+    let k: [u8; 32] = hex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")
+        .try_into()
+        .unwrap();
+    let u: [u8; 32] = hex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c")
+        .try_into()
+        .unwrap();
     let out = x25519_dalek::x25519(k, u);
-    assert_eq!(out.to_vec(), hex("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552"));
+    assert_eq!(
+        out.to_vec(),
+        hex("c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552")
+    );
 }
 
 #[test]
@@ -22,7 +32,10 @@ fn hkdf_rfc5869_case1() {
     let hk = Hkdf::<sha2::Sha256>::new(Some(&hex("000102030405060708090a0b0c")), &[0x0b; 22]);
     let mut okm = [0u8; 42];
     hk.expand(&hex("f0f1f2f3f4f5f6f7f8f9"), &mut okm).unwrap();
-    assert_eq!(okm.to_vec(), hex("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865"));
+    assert_eq!(
+        okm.to_vec(),
+        hex("3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
+    );
 }
 
 #[test]
@@ -49,7 +62,12 @@ fn every_bit_flip_is_rejected() {
         for i in 0..b.len() {
             let mut t = b.clone();
             t[i] ^= 1;
-            assert!(open(s, &DEK, b"hdr", &t).is_err(), "suite {:?} byte {}", s, i);
+            assert!(
+                open(s, &DEK, b"hdr", &t).is_err(),
+                "suite {:?} byte {}",
+                s,
+                i
+            );
         }
         assert!(open(s, &DEK, b"hdr", &b[..b.len() - 1]).is_err());
         assert!(open(s, &DEK, b"hdr", &[]).is_err());
@@ -104,7 +122,10 @@ fn hybrid_wrong_recipient_and_tamper() {
     let w = hybrid::wrap_dek(&pk, &DEK).unwrap();
     assert_eq!(hybrid::unwrap_dek(&other, &w), Err(CryptoError::Open));
     // flip a sample of bytes across every region: version, x25519 pub, ML-KEM ct, AEAD part
-    for i in (0..w.len()).step_by(7).chain([0, 1, 32, 33, 1120, 1121, w.len() - 1]) {
+    for i in (0..w.len())
+        .step_by(7)
+        .chain([0, 1, 32, 33, 1120, 1121, w.len() - 1])
+    {
         let mut t = w.clone();
         t[i] ^= 1;
         assert!(hybrid::unwrap_dek(&sk, &t).is_err(), "byte {i}");
@@ -124,9 +145,18 @@ fn hybrid_rejects_bad_public_keys() {
 
 #[test]
 fn argon_floor_and_ceiling() {
-    let ok = ArgonParams { m_kib: FLOOR_M_KIB, t: 2, p: 1 };
+    let ok = ArgonParams {
+        m_kib: FLOOR_M_KIB,
+        t: 2,
+        p: 1,
+    };
     assert!(ok.check(Tier::Gb2).is_ok());
-    assert!(ArgonParams { m_kib: FLOOR_M_KIB - 1, ..ok }.check(Tier::Gb64).is_err());
+    assert!(ArgonParams {
+        m_kib: FLOOR_M_KIB - 1,
+        ..ok
+    }
+    .check(Tier::Gb64)
+    .is_err());
     assert!(ArgonParams { t: 1, ..ok }.check(Tier::Gb64).is_err());
     assert!(ArgonParams { p: 0, ..ok }.check(Tier::Gb64).is_err());
     assert!(ArgonParams { t: 11, ..ok }.check(Tier::Gb64).is_err());
@@ -134,13 +164,30 @@ fn argon_floor_and_ceiling() {
     // memory ceiling is RAM/8 of the reader
     assert_eq!(Tier::Gb2.ceiling_m_kib(), 256 * 1024);
     assert_eq!(Tier::Gb64.ceiling_m_kib(), 8 * 1024 * 1024);
-    assert!(ArgonParams { m_kib: 256 * 1024, ..ok }.check(Tier::Gb2).is_ok());
-    assert!(ArgonParams { m_kib: 256 * 1024 + 1, ..ok }.check(Tier::Gb2).is_err());
+    assert!(ArgonParams {
+        m_kib: 256 * 1024,
+        ..ok
+    }
+    .check(Tier::Gb2)
+    .is_ok());
+    assert!(ArgonParams {
+        m_kib: 256 * 1024 + 1,
+        ..ok
+    }
+    .check(Tier::Gb2)
+    .is_err());
 }
 
 #[test]
 fn argon_tiers_scale_and_default_fits_2gb() {
-    let tiers = [Tier::Gb2, Tier::Gb4, Tier::Gb8, Tier::Gb16, Tier::Gb32, Tier::Gb64];
+    let tiers = [
+        Tier::Gb2,
+        Tier::Gb4,
+        Tier::Gb8,
+        Tier::Gb16,
+        Tier::Gb32,
+        Tier::Gb64,
+    ];
     let mut prev = 0;
     for t in tiers {
         let h = ArgonParams::high(t);
@@ -163,7 +210,11 @@ fn argon_header_encoding() {
 
 #[test]
 fn derive_is_deterministic_and_checked() {
-    let p = ArgonParams { m_kib: FLOOR_M_KIB, t: 2, p: 1 };
+    let p = ArgonParams {
+        m_kib: FLOOR_M_KIB,
+        t: 2,
+        p: 1,
+    };
     let salt = [9u8; 16];
     let a = derive_key(b"pw", &salt, &p, Tier::Gb2).unwrap();
     let b = derive_key(b"pw", &salt, &p, Tier::Gb2).unwrap();
@@ -172,6 +223,10 @@ fn derive_is_deterministic_and_checked() {
     assert_ne!(*a, *derive_key(b"pw", &[8u8; 16], &p, Tier::Gb2).unwrap());
     assert!(derive_key(b"pw", &salt[..8], &p, Tier::Gb2).is_err());
     assert!(derive_key(b"", &salt, &p, Tier::Gb2).is_err());
-    let huge = ArgonParams { m_kib: 4 * 1024 * 1024, t: 2, p: 1 };
+    let huge = ArgonParams {
+        m_kib: 4 * 1024 * 1024,
+        t: 2,
+        p: 1,
+    };
     assert!(derive_key(b"pw", &salt, &huge, Tier::Gb2).is_err());
 }

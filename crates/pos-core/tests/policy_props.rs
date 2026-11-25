@@ -37,7 +37,11 @@ fn arb_policy() -> impl Strategy<Value = Policy> {
         any::<bool>(),
     )
         .prop_map(|(allowlist, sources, max_size, require_sig)| Policy {
-            mode: if allowlist { Mode::Allowlist } else { Mode::Audit },
+            mode: if allowlist {
+                Mode::Allowlist
+            } else {
+                Mode::Audit
+            },
             allowed_sources: sources.clone(),
             max_package_size_mb: max_size,
             require_signature: require_sig,

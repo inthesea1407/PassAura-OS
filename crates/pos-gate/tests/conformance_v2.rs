@@ -28,9 +28,19 @@ fn doc(sk: &SigningKey, seq: u64) -> V2Allowlist {
         expires_at: 1_086_400,
         signed_by: id.clone(),
         keyring: V2Keyring {
-            keys: vec![V2Key { key_id: id, public_key_hex: pk, valid_from: 0, valid_until: 2_000_000, retired: false }],
+            keys: vec![V2Key {
+                key_id: id,
+                public_key_hex: pk,
+                valid_from: 0,
+                valid_until: 2_000_000,
+                retired: false,
+            }],
         },
-        entries: vec![V2Entry { name: "ripgrep".into(), version: Some("14.1.0".into()), sha256: "a".repeat(64) }],
+        entries: vec![V2Entry {
+            name: "ripgrep".into(),
+            version: Some("14.1.0".into()),
+            sha256: "a".repeat(64),
+        }],
         signature_hex: String::new(),
     }
 }
@@ -58,10 +68,30 @@ fn build() -> Value {
     let digest = canonical_digest_hex(&good).unwrap();
     let mut cases = vec![];
     cases.push(case("valid", &good, NOW, None));
-    cases.push(case("valid_same_sequence_same_digest", &good, NOW, Some((5, digest.clone()))));
-    cases.push(case("valid_higher_sequence", &good, NOW, Some((4, "00".repeat(32)))));
-    cases.push(case("downgrade_lower_sequence", &good, NOW, Some((6, digest.clone()))));
-    cases.push(case("same_sequence_different_digest", &good, NOW, Some((5, "00".repeat(32)))));
+    cases.push(case(
+        "valid_same_sequence_same_digest",
+        &good,
+        NOW,
+        Some((5, digest.clone())),
+    ));
+    cases.push(case(
+        "valid_higher_sequence",
+        &good,
+        NOW,
+        Some((4, "00".repeat(32))),
+    ));
+    cases.push(case(
+        "downgrade_lower_sequence",
+        &good,
+        NOW,
+        Some((6, digest.clone())),
+    ));
+    cases.push(case(
+        "same_sequence_different_digest",
+        &good,
+        NOW,
+        Some((5, "00".repeat(32))),
+    ));
     cases.push(case("expired", &good, 1_086_400, None));
     cases.push(case("not_yet_valid", &good, 999_999, None));
     let mut t = good.clone();
@@ -88,7 +118,12 @@ fn build() -> Value {
     cases.push(case("empty_keyring", &sign(t, &sk), NOW, None));
     let mut t = doc(&sk, 5);
     t.keyring.keys[0].valid_from = 1_050_000;
-    cases.push(case("key_not_valid_at_issue_time", &sign(t, &sk), NOW, None));
+    cases.push(case(
+        "key_not_valid_at_issue_time",
+        &sign(t, &sk),
+        NOW,
+        None,
+    ));
     let mut t = doc(&sk, 5);
     t.expires_at = t.issued_at;
     cases.push(case("empty_validity_window", &sign(t, &sk), NOW, None));
@@ -104,7 +139,10 @@ fn build() -> Value {
     })
 }
 
-const PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/vectors/allowlist_v2.json");
+const PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/vectors/allowlist_v2.json"
+);
 
 #[test]
 fn vectors_match_committed_file_and_implementation() {
@@ -113,16 +151,33 @@ fn vectors_match_committed_file_and_implementation() {
     if std::env::var("UPDATE_VECTORS").is_ok() {
         std::fs::write(PATH, &text).unwrap();
     }
-    let committed = std::fs::read_to_string(PATH).expect("vector file missing; run with UPDATE_VECTORS=1");
+    let committed =
+        std::fs::read_to_string(PATH).expect("vector file missing; run with UPDATE_VECTORS=1");
     assert_eq!(committed, text, "vector file out of date");
 
     // Replay the committed file through the verifier, as a third party would.
     let parsed: Value = serde_json::from_str(&committed).unwrap();
     for c in parsed["cases"].as_array().unwrap() {
         let d: V2Allowlist = serde_json::from_value(c["document"].clone()).unwrap();
-        let stored = c["stored"].as_object().map(|o| (o["sequence"].as_u64().unwrap(), o["digest_hex"].as_str().unwrap().to_string()));
-        let r = verify_v2(&d, c["now"].as_i64().unwrap(), stored.as_ref().map(|(s, h)| (*s, h.as_str())));
-        let got = match r { Ok(()) => "ok".to_string(), Err(e) => format!("{:?}", e).split(['(', ' ']).next().unwrap().to_string() };
+        let stored = c["stored"].as_object().map(|o| {
+            (
+                o["sequence"].as_u64().unwrap(),
+                o["digest_hex"].as_str().unwrap().to_string(),
+            )
+        });
+        let r = verify_v2(
+            &d,
+            c["now"].as_i64().unwrap(),
+            stored.as_ref().map(|(s, h)| (*s, h.as_str())),
+        );
+        let got = match r {
+            Ok(()) => "ok".to_string(),
+            Err(e) => format!("{:?}", e)
+                .split(['(', ' '])
+                .next()
+                .unwrap()
+                .to_string(),
+        };
         assert_eq!(got, c["expect"].as_str().unwrap(), "case {}", c["name"]);
     }
 }
@@ -130,7 +185,17 @@ fn vectors_match_committed_file_and_implementation() {
 #[test]
 fn expectations_are_what_the_spec_says() {
     let v = build();
-    let get = |n: &str| v["cases"].as_array().unwrap().iter().find(|c| c["name"] == n).unwrap()["expect"].as_str().unwrap().to_string();
+    let get = |n: &str| {
+        v["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == n)
+            .unwrap()["expect"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
     assert_eq!(get("valid"), "ok");
     assert_eq!(get("tampered_entry"), "SignatureInvalid");
     assert_eq!(get("downgrade_lower_sequence"), "DowngradeRejected");

@@ -9,7 +9,13 @@ fn sk(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&[seed; 32])
 }
 fn tkey(id: &str, seed: u8) -> TrustedKey {
-    TrustedKey { key_id: id.into(), public_key: sk(seed).verifying_key().to_bytes(), valid_from: 0, valid_until: u64::MAX, retired: false }
+    TrustedKey {
+        key_id: id.into(),
+        public_key: sk(seed).verifying_key().to_bytes(),
+        valid_from: 0,
+        valid_until: u64::MAX,
+        retired: false,
+    }
 }
 fn keys() -> Vec<TrustedKey> {
     vec![tkey("a", 1), tkey("b", 2), tkey("c", 3)]
@@ -18,22 +24,58 @@ fn sign(m: &Manifest) -> Vec<u8> {
     let msg = signed_bytes(m).unwrap();
     let signatures = [("a", 1u8), ("b", 2u8)]
         .iter()
-        .map(|(id, seed)| SignatureEntry { key_id: (*id).into(), sig_hex: hex::encode(sk(*seed).sign(&msg).to_bytes()) })
+        .map(|(id, seed)| SignatureEntry {
+            key_id: (*id).into(),
+            sig_hex: hex::encode(sk(*seed).sign(&msg).to_bytes()),
+        })
         .collect();
-    serde_json::to_vec(&Envelope { manifest: m.clone(), signatures }).unwrap()
+    serde_json::to_vec(&Envelope {
+        manifest: m.clone(),
+        signatures,
+    })
+    .unwrap()
 }
 
 fn artifact() -> impl Strategy<Value = Artifact> {
-    ("[A-Za-z0-9][A-Za-z0-9._-]{0,20}", ".{0,12}", "[0-9a-f]{64}", any::<u64>())
-        .prop_map(|(name, version, sha256, size)| Artifact { name, version, sha256, size })
+    (
+        "[A-Za-z0-9][A-Za-z0-9._-]{0,20}",
+        ".{0,12}",
+        "[0-9a-f]{64}",
+        any::<u64>(),
+    )
+        .prop_map(|(name, version, sha256, size)| Artifact {
+            name,
+            version,
+            sha256,
+            size,
+        })
 }
 
 fn manifest() -> impl Strategy<Value = Manifest> {
-    (any::<u64>(), 1u64..5000, proptest::collection::vec(artifact(), 1..4)).prop_map(|(sequence, span, artifacts)| {
-        // unique names
-        let artifacts = artifacts.into_iter().enumerate().map(|(i, mut a)| { a.name = format!("{}-{i}", a.name); a }).collect();
-        Manifest { format: FORMAT.into(), channel: "stable".into(), sequence, issued_at: NOW - span.min(NOW - 1), expires_at: NOW + 1000, artifacts }
-    })
+    (
+        any::<u64>(),
+        1u64..5000,
+        proptest::collection::vec(artifact(), 1..4),
+    )
+        .prop_map(|(sequence, span, artifacts)| {
+            // unique names
+            let artifacts = artifacts
+                .into_iter()
+                .enumerate()
+                .map(|(i, mut a)| {
+                    a.name = format!("{}-{i}", a.name);
+                    a
+                })
+                .collect();
+            Manifest {
+                format: FORMAT.into(),
+                channel: "stable".into(),
+                sequence,
+                issued_at: NOW - span.min(NOW - 1),
+                expires_at: NOW + 1000,
+                artifacts,
+            }
+        })
 }
 
 proptest! {

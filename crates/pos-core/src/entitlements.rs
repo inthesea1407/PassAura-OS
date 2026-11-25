@@ -12,14 +12,19 @@ pub const PASSAURA_TEAM: &str = "team.passaura";
 pub enum Entitlement {
     Network,
     Camera,
-    CredentialProvider, // restricted
-    AutofillProvider,   // restricted
+    CredentialProvider,   // restricted
+    AutofillProvider,     // restricted
     AccessibilityControl, // restricted
 }
 
 impl Entitlement {
     pub fn restricted(self) -> bool {
-        matches!(self, Entitlement::CredentialProvider | Entitlement::AutofillProvider | Entitlement::AccessibilityControl)
+        matches!(
+            self,
+            Entitlement::CredentialProvider
+                | Entitlement::AutofillProvider
+                | Entitlement::AccessibilityControl
+        )
     }
 }
 
@@ -61,29 +66,71 @@ mod tests {
     use super::*;
     use Entitlement::*;
 
-    fn m<'a>(team: &'a str, req: &'a [Entitlement], appr: &'a [Entitlement], signed: bool, side: bool) -> Manifest<'a> {
-        Manifest { team, requested: req, approved: appr, store_signed: signed, sideloaded: side }
+    fn m<'a>(
+        team: &'a str,
+        req: &'a [Entitlement],
+        appr: &'a [Entitlement],
+        signed: bool,
+        side: bool,
+    ) -> Manifest<'a> {
+        Manifest {
+            team,
+            requested: req,
+            approved: appr,
+            store_signed: signed,
+            sideloaded: side,
+        }
     }
 
     #[test]
     fn sideload_and_unsigned_rejected() {
-        assert!(matches!(install_decision(&m("t", &[Network], &[Network], true, true)), InstallVerdict::Reject(_)));
-        assert!(matches!(install_decision(&m("t", &[Network], &[Network], false, false)), InstallVerdict::Reject(_)));
+        assert!(matches!(
+            install_decision(&m("t", &[Network], &[Network], true, true)),
+            InstallVerdict::Reject(_)
+        ));
+        assert!(matches!(
+            install_decision(&m("t", &[Network], &[Network], false, false)),
+            InstallVerdict::Reject(_)
+        ));
     }
 
     #[test]
     fn unapproved_entitlement_rejected() {
-        assert!(matches!(install_decision(&m("t", &[Camera], &[Network], true, false)), InstallVerdict::Reject(_)));
+        assert!(matches!(
+            install_decision(&m("t", &[Camera], &[Network], true, false)),
+            InstallVerdict::Reject(_)
+        ));
     }
 
     #[test]
     fn restricted_only_for_passaura_even_if_approved() {
-        assert!(matches!(install_decision(&m("evil", &[CredentialProvider], &[CredentialProvider], true, false)), InstallVerdict::Reject(_)));
-        assert_eq!(install_decision(&m(PASSAURA_TEAM, &[CredentialProvider, AutofillProvider], &[CredentialProvider, AutofillProvider], true, false)), InstallVerdict::Install);
+        assert!(matches!(
+            install_decision(&m(
+                "evil",
+                &[CredentialProvider],
+                &[CredentialProvider],
+                true,
+                false
+            )),
+            InstallVerdict::Reject(_)
+        ));
+        assert_eq!(
+            install_decision(&m(
+                PASSAURA_TEAM,
+                &[CredentialProvider, AutofillProvider],
+                &[CredentialProvider, AutofillProvider],
+                true,
+                false
+            )),
+            InstallVerdict::Install
+        );
     }
 
     #[test]
     fn ordinary_app_installs() {
-        assert_eq!(install_decision(&m("t", &[Network, Camera], &[Network, Camera], true, false)), InstallVerdict::Install);
+        assert_eq!(
+            install_decision(&m("t", &[Network, Camera], &[Network, Camera], true, false)),
+            InstallVerdict::Install
+        );
     }
 }

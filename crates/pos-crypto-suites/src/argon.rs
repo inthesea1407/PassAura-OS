@@ -62,11 +62,19 @@ pub struct ArgonParams {
 
 impl ArgonParams {
     /// 64 MiB, t=3, p=4.
-    pub const DEFAULT: ArgonParams = ArgonParams { m_kib: 64 * MIB, t: 3, p: 4 };
+    pub const DEFAULT: ArgonParams = ArgonParams {
+        m_kib: 64 * MIB,
+        t: 3,
+        p: 4,
+    };
 
     /// Half of the tier's ceiling, t=3, p=4.
     pub fn high(tier: Tier) -> ArgonParams {
-        ArgonParams { m_kib: tier.ceiling_m_kib() / 2, t: 3, p: 4 }
+        ArgonParams {
+            m_kib: tier.ceiling_m_kib() / 2,
+            t: 3,
+            p: 4,
+        }
     }
 
     /// Floor and ceiling check for a reading device of `reader`. Run before deriving.
@@ -81,7 +89,9 @@ impl ArgonParams {
             return Err(CryptoError::ParamsOutOfPolicy("parallelism below floor"));
         }
         if self.m_kib > reader.ceiling_m_kib() {
-            return Err(CryptoError::ParamsOutOfPolicy("memory cost above this device tier's ceiling"));
+            return Err(CryptoError::ParamsOutOfPolicy(
+                "memory cost above this device tier's ceiling",
+            ));
         }
         if self.t > MAX_T {
             return Err(CryptoError::ParamsOutOfPolicy("time cost above ceiling"));
@@ -103,10 +113,16 @@ impl ArgonParams {
 
     pub fn from_bytes(b: &[u8]) -> Result<ArgonParams, CryptoError> {
         if b.len() != 12 {
-            return Err(CryptoError::BadInput("argon2 parameter block must be 12 bytes"));
+            return Err(CryptoError::BadInput(
+                "argon2 parameter block must be 12 bytes",
+            ));
         }
         let rd = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
-        Ok(ArgonParams { m_kib: rd(0), t: rd(4), p: rd(8) })
+        Ok(ArgonParams {
+            m_kib: rd(0),
+            t: rd(4),
+            p: rd(8),
+        })
     }
 }
 

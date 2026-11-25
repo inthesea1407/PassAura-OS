@@ -1,16 +1,14 @@
-use pos_gate::allowlist_v2::{
-    parse_v2, verify_v2, V2Allowlist, V2Entry, V2Key, V2Keyring,
-    V2Error, canonical_payload_bytes, derive_key_id,
-};
 use ed25519_dalek::{Signer, SigningKey};
+use pos_gate::allowlist_v2::{
+    canonical_payload_bytes, derive_key_id, parse_v2, verify_v2, V2Allowlist, V2Entry, V2Error,
+    V2Key, V2Keyring,
+};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 static SEED: AtomicU8 = AtomicU8::new(50);
 
 fn signing_key() -> SigningKey {
-    SigningKey::from_bytes(
-        &[SEED.fetch_add(1, Ordering::SeqCst); 32]
-    )
+    SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32])
 }
 
 fn sample(sk: &SigningKey, sequence: u64) -> V2Allowlist {
@@ -66,11 +64,7 @@ fn unsigned_downgrade_candidate_must_not_trigger_sequence_decision() {
     let doc = sample(&sk, 1);
 
     // Deliberately leave the document unsigned.
-    let result = verify_v2(
-        &doc,
-        1_700_000_100,
-        Some((10, "stored-digest")),
-    );
+    let result = verify_v2(&doc, 1_700_000_100, Some((10, "stored-digest")));
 
     assert!(
         matches!(result, Err(V2Error::SignatureInvalid)),
@@ -133,8 +127,8 @@ fn non_canonical_signature_is_rejected() {
     let mut sig = hex::decode(&doc.signature_hex).unwrap();
     // L = 2^252 + 27742317777372353535851937790883648493 (little endian)
     let l: [u8; 32] = [
-        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
+        0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde,
+        0x14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10,
     ];
     let mut carry = 0u16;
     for i in 0..32 {

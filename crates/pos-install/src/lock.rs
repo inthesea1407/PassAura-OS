@@ -18,7 +18,10 @@ use std::time::{Duration, Instant};
 #[derive(Debug)]
 pub enum LockError {
     /// Another holder kept the lock for the whole timeout.
-    Held { path: PathBuf, waited: Duration },
+    Held {
+        path: PathBuf,
+        waited: Duration,
+    },
     Io(io::Error),
 }
 

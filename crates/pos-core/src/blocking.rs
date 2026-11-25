@@ -16,10 +16,10 @@ use crate::{category_allowed, AppCategory, PASSWORD_MANAGER_ID};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Capability {
-    AutofillProvider,       // Android AutofillService / credential provider
-    CredentialProvider,     // passkey / credential manager provider
-    AccessibilityAutofill,  // accessibility service reading password fields
-    PasswordVaultStore,     // declares a password vault / import-export of logins
+    AutofillProvider,      // Android AutofillService / credential provider
+    CredentialProvider,    // passkey / credential manager provider
+    AccessibilityAutofill, // accessibility service reading password fields
+    PasswordVaultStore,    // declares a password vault / import-export of logins
     Camera,
     Network,
 }
@@ -49,7 +49,11 @@ pub fn classify(caps: &[Capability]) -> AppCategory {
         | Capability::PasswordVaultStore => true,
         Capability::Camera | Capability::Network => false,
     });
-    if pm { AppCategory::PasswordManager } else { AppCategory::Other }
+    if pm {
+        AppCategory::PasswordManager
+    } else {
+        AppCategory::Other
+    }
 }
 
 /// Decide an operation for an app. Every password-manager-class app other
@@ -90,28 +94,61 @@ mod tests {
             Operation::ReadPasswordFields,
             Operation::ImportExportLogins,
         ] {
-            assert!(matches!(enforce("com.other.vault", &[AutofillProvider], true, op), Verdict::Block(_)));
+            assert!(matches!(
+                enforce("com.other.vault", &[AutofillProvider], true, op),
+                Verdict::Block(_)
+            ));
         }
     }
 
     #[test]
     fn renaming_does_not_bypass() {
-        assert!(matches!(enforce("passaura.premium.fake", &[CredentialProvider], true, Operation::Install), Verdict::Block(_)));
+        assert!(matches!(
+            enforce(
+                "passaura.premium.fake",
+                &[CredentialProvider],
+                true,
+                Operation::Install
+            ),
+            Verdict::Block(_)
+        ));
     }
 
     #[test]
     fn accessibility_autofill_counts_as_password_manager() {
-        assert_eq!(classify(&[AccessibilityAutofill, Network]), AppCategory::PasswordManager);
+        assert_eq!(
+            classify(&[AccessibilityAutofill, Network]),
+            AppCategory::PasswordManager
+        );
     }
 
     #[test]
     fn passaura_allowed_only_when_licensed() {
-        assert_eq!(enforce(PASSWORD_MANAGER_ID, &[AutofillProvider], true, Operation::Launch), Verdict::Allow);
-        assert!(matches!(enforce(PASSWORD_MANAGER_ID, &[AutofillProvider], false, Operation::Launch), Verdict::Block(_)));
+        assert_eq!(
+            enforce(
+                PASSWORD_MANAGER_ID,
+                &[AutofillProvider],
+                true,
+                Operation::Launch
+            ),
+            Verdict::Allow
+        );
+        assert!(matches!(
+            enforce(
+                PASSWORD_MANAGER_ID,
+                &[AutofillProvider],
+                false,
+                Operation::Launch
+            ),
+            Verdict::Block(_)
+        ));
     }
 
     #[test]
     fn ordinary_apps_unaffected() {
-        assert_eq!(enforce("com.game", &[Camera, Network], false, Operation::Install), Verdict::Allow);
+        assert_eq!(
+            enforce("com.game", &[Camera, Network], false, Operation::Install),
+            Verdict::Allow
+        );
     }
 }

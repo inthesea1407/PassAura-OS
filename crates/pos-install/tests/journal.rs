@@ -14,7 +14,11 @@ fn is_corrupt<T: std::fmt::Debug>(r: Result<T, JournalError>) -> bool {
 
 #[test]
 fn a_valid_journal_folds() {
-    let b = lines(&[BEGUN, r#"{"attempt":"a1","step":"verified"}"#, r#"{"attempt":"a1","step":"fetched"}"#]);
+    let b = lines(&[
+        BEGUN,
+        r#"{"attempt":"a1","step":"verified"}"#,
+        r#"{"attempt":"a1","step":"fetched"}"#,
+    ]);
     let a = fold(&parse(&b).unwrap()).unwrap();
     assert_eq!(a.len(), 1);
     assert_eq!(a[0].rank, 2);
@@ -34,7 +38,9 @@ fn garbage_and_wrong_shapes_are_rejected() {
     assert!(is_corrupt(parse(b"not json at all\n")));
     assert!(is_corrupt(parse(&[0xff, 0xfe, b'\n'])));
     assert!(is_corrupt(parse(b"{\"attempt\":\"a1\"}\n")));
-    assert!(is_corrupt(parse(b"{\"attempt\":\"a1\",\"step\":\"warp_drive\"}\n")));
+    assert!(is_corrupt(parse(
+        b"{\"attempt\":\"a1\",\"step\":\"warp_drive\"}\n"
+    )));
     assert!(is_corrupt(parse(b"\n")));
     assert!(is_corrupt(parse(b"[]\n")));
 }
@@ -48,12 +54,30 @@ fn duplicate_skipped_and_out_of_order_steps_are_rejected() {
     assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, v, v])).unwrap()))); // duplicate
     assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, f])).unwrap()))); // skipped
     assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, v, s])).unwrap()))); // skipped
-    assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, v, f, st])).unwrap()))); // skipped staged
+    assert!(is_corrupt(fold(
+        &parse(&lines(&[BEGUN, v, f, st])).unwrap()
+    ))); // skipped staged
     assert!(is_corrupt(fold(&parse(&lines(&[v])).unwrap()))); // before begun
     assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, BEGUN])).unwrap()))); // duplicate attempt
-    assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, r#"{"attempt":"a1","step":"installed"}"#])).unwrap())));
-    assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, r#"{"attempt":"a1","step":"audit_written","seq":1}"#])).unwrap())));
-    assert!(is_corrupt(fold(&parse(&lines(&[BEGUN, v, f, r#"{"attempt":"a1","step":"staged","file":"../x.deb"}"#])).unwrap())));
+    assert!(is_corrupt(fold(
+        &parse(&lines(&[BEGUN, r#"{"attempt":"a1","step":"installed"}"#])).unwrap()
+    )));
+    assert!(is_corrupt(fold(
+        &parse(&lines(&[
+            BEGUN,
+            r#"{"attempt":"a1","step":"audit_written","seq":1}"#
+        ]))
+        .unwrap()
+    )));
+    assert!(is_corrupt(fold(
+        &parse(&lines(&[
+            BEGUN,
+            v,
+            f,
+            r#"{"attempt":"a1","step":"staged","file":"../x.deb"}"#
+        ]))
+        .unwrap()
+    )));
 }
 
 #[test]
@@ -70,8 +94,19 @@ fn append_refuses_an_illegal_step_and_leaves_the_file_unchanged() {
     use pos_install::journal::{Entry, Step};
     let dir = tempfile::tempdir().unwrap();
     let j = Journal::for_state(&dir.path().join("s.json"));
-    let e = |s| Entry { attempt: "a1".into(), step: s };
-    j.append(&e(Step::Begun { package: "p".into(), sequence: 1, digest: "d".into(), sha256: "s".into(), source: "x".into(), parent: None })).unwrap();
+    let e = |s| Entry {
+        attempt: "a1".into(),
+        step: s,
+    };
+    j.append(&e(Step::Begun {
+        package: "p".into(),
+        sequence: 1,
+        digest: "d".into(),
+        sha256: "s".into(),
+        source: "x".into(),
+        parent: None,
+    }))
+    .unwrap();
     let before = std::fs::read(j.path()).unwrap();
     assert!(j.append(&e(Step::Installed)).is_err());
     assert!(j.append(&e(Step::Fetched)).is_err());

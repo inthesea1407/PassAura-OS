@@ -22,7 +22,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Hash of the empty chain's virtual "previous record".
-pub const GENESIS_PREV_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_PREV_HASH: &str =
+    "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// Hex length of a SHA-256 digest.
 pub const HASH_LEN: usize = 64;
@@ -103,8 +104,17 @@ pub struct AuditRecord {
 
 impl AuditRecord {
     /// The exact bytes covered by `hash`.
-    pub fn canonical_bytes(seq: u64, timestamp: u64, event: AuditEvent, prev_hash: &str) -> Vec<u8> {
-        format!("{seq}\n{timestamp}\n{}\n{prev_hash}\n", event_json_name(event)).into_bytes()
+    pub fn canonical_bytes(
+        seq: u64,
+        timestamp: u64,
+        event: AuditEvent,
+        prev_hash: &str,
+    ) -> Vec<u8> {
+        format!(
+            "{seq}\n{timestamp}\n{}\n{prev_hash}\n",
+            event_json_name(event)
+        )
+        .into_bytes()
     }
 
     /// Compute a record's hash from its fields.
@@ -193,7 +203,10 @@ impl Default for AuditLog<SystemClock> {
 impl<C: Clock> AuditLog<C> {
     /// Empty log bound to the given clock.
     pub fn with_clock(clock: C) -> Self {
-        Self { clock, records: Vec::new() }
+        Self {
+            clock,
+            records: Vec::new(),
+        }
     }
 
     /// Append one event. Returns the freshly computed record.
@@ -212,7 +225,13 @@ impl<C: Clock> AuditLog<C> {
             .map(|r| r.hash.clone())
             .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
         let hash = AuditRecord::compute_hash(seq, timestamp, event, &prev_hash);
-        self.records.push(AuditRecord { seq, timestamp, event, prev_hash, hash });
+        self.records.push(AuditRecord {
+            seq,
+            timestamp,
+            event,
+            prev_hash,
+            hash,
+        });
         self.records.last().expect("just pushed")
     }
 
@@ -281,7 +300,9 @@ impl<C: Clock> AuditLog<C> {
         let f = File::open(path)?;
         // A read error must fail the load. Dropping it would silently
         // shorten the chain, which still verifies.
-        let lines = BufReader::new(f).lines().collect::<Result<Vec<String>, _>>()?;
+        let lines = BufReader::new(f)
+            .lines()
+            .collect::<Result<Vec<String>, _>>()?;
         Self::from_json_lines_lines(lines.into_iter(), clock)
     }
 
@@ -347,7 +368,13 @@ fn plan_after(records: &[AuditRecord], timestamp: u64, event: AuditEvent) -> Aud
         .map(|r| r.hash.clone())
         .unwrap_or_else(|| GENESIS_PREV_HASH.to_string());
     let hash = AuditRecord::compute_hash(seq, timestamp, event, &prev_hash);
-    AuditRecord { seq, timestamp, event, prev_hash, hash }
+    AuditRecord {
+        seq,
+        timestamp,
+        event,
+        prev_hash,
+        hash,
+    }
 }
 
 fn read_verified_records(path: &Path) -> std::io::Result<Vec<AuditRecord>> {
@@ -413,7 +440,10 @@ pub struct Anchor {
 impl Anchor {
     /// Anchor from the current state of an in-memory log.
     pub fn from_log<C: Clock>(log: &AuditLog<C>) -> Self {
-        Self { len: log.records().len() as u64, head_hash: log.head_hash().to_string() }
+        Self {
+            len: log.records().len() as u64,
+            head_hash: log.head_hash().to_string(),
+        }
     }
 }
 
@@ -506,7 +536,10 @@ mod tests {
     fn head_hash_matches_last_record() {
         let log = log_two_events();
         assert_eq!(log.head_hash(), log.records()[1].hash);
-        assert_eq!(AuditLog::<FixedClock>::with_clock(FixedClock(1)).head_hash(), GENESIS_PREV_HASH);
+        assert_eq!(
+            AuditLog::<FixedClock>::with_clock(FixedClock(1)).head_hash(),
+            GENESIS_PREV_HASH
+        );
     }
 
     #[test]
@@ -517,7 +550,8 @@ mod tests {
     }
 
     fn assert_jsonl_roundtrip(log: &AuditLog<FixedClock>) {
-        let loaded = AuditLog::from_json_lines(&log.to_json_lines(), FixedClock(0)).expect("clean chain loads");
+        let loaded = AuditLog::from_json_lines(&log.to_json_lines(), FixedClock(0))
+            .expect("clean chain loads");
         assert_eq!(loaded.records(), log.records());
     }
 
@@ -527,7 +561,11 @@ mod tests {
         let mut recs: Vec<AuditRecord> = log.records().to_vec();
         recs[1].event = AuditEvent::GateAllowed; // rewrite history
         match verify_chain(&recs) {
-            Err(ChainError { kind: ChainErrorKind::HashMismatch, index: 1, seq: Some(2) }) => {}
+            Err(ChainError {
+                kind: ChainErrorKind::HashMismatch,
+                index: 1,
+                seq: Some(2),
+            }) => {}
             other => panic!("expected HashMismatch at index 1, got {other:?}"),
         }
     }
@@ -539,7 +577,11 @@ mod tests {
         recs[0].timestamp += 3600;
         assert!(matches!(
             verify_chain(&recs),
-            Err(ChainError { kind: ChainErrorKind::HashMismatch, index: 0, .. })
+            Err(ChainError {
+                kind: ChainErrorKind::HashMismatch,
+                index: 0,
+                ..
+            })
         ));
     }
 
@@ -553,7 +595,11 @@ mod tests {
         recs[1].hash = bytes.iter().collect();
         assert!(matches!(
             verify_chain(&recs),
-            Err(ChainError { kind: ChainErrorKind::HashMismatch, index: 1, .. })
+            Err(ChainError {
+                kind: ChainErrorKind::HashMismatch,
+                index: 1,
+                ..
+            })
         ));
     }
 
@@ -565,8 +611,11 @@ mod tests {
         log.append(AuditEvent::KeyRotated);
         let mut recs = log.records().to_vec();
         recs.swap(1, 2); // swap two middle records
-        // Either seq/OutOfOrder or PrevHashMismatch fires; must not pass.
-        assert!(verify_chain(&recs).is_err(), "reordered chain must be rejected");
+                         // Either seq/OutOfOrder or PrevHashMismatch fires; must not pass.
+        assert!(
+            verify_chain(&recs).is_err(),
+            "reordered chain must be rejected"
+        );
     }
 
     #[test]
@@ -585,7 +634,11 @@ mod tests {
             .collect();
         assert!(matches!(
             verify_chain(&recs),
-            Err(ChainError { index: 1, seq: Some(3), .. })
+            Err(ChainError {
+                index: 1,
+                seq: Some(3),
+                ..
+            })
         ));
     }
 
@@ -613,7 +666,11 @@ mod tests {
         text.push_str("{not json}\n");
         assert!(matches!(
             AuditLog::from_json_lines(&text, FixedClock(0)),
-            Err(ChainError { kind: ChainErrorKind::CorruptLine, index: 1, .. })
+            Err(ChainError {
+                kind: ChainErrorKind::CorruptLine,
+                index: 1,
+                ..
+            })
         ));
     }
 
@@ -697,9 +754,14 @@ mod review_tests {
 
     #[test]
     fn chain_error_is_kept_as_io_error_source() {
-        let e = AuditLog::from_json_lines_lines(["not json".to_string()].into_iter(), FixedClock(1)).unwrap_err();
+        let e =
+            AuditLog::from_json_lines_lines(["not json".to_string()].into_iter(), FixedClock(1))
+                .unwrap_err();
         assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
-        assert!(e.get_ref().and_then(|s| s.downcast_ref::<ChainError>()).is_some());
+        assert!(e
+            .get_ref()
+            .and_then(|s| s.downcast_ref::<ChainError>())
+            .is_some());
     }
 
     #[test]

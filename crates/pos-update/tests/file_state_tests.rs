@@ -5,7 +5,11 @@ use std::io::ErrorKind;
 use std::time::Duration;
 
 fn st(channel: &str, seq: u64, d: u8) -> AcceptedState {
-    AcceptedState { channel: channel.into(), sequence: seq, digest: [d; 32] }
+    AcceptedState {
+        channel: channel.into(),
+        sequence: seq,
+        digest: [d; 32],
+    }
 }
 const T: Duration = Duration::from_millis(50);
 
@@ -42,7 +46,10 @@ fn lock_is_exclusive_bounded_and_released_on_drop() {
 fn leftover_lock_file_with_no_holder_does_not_block() {
     let d = tempfile::tempdir().unwrap();
     drop(FileStateStore::acquire(d.path(), "stable", T).unwrap());
-    assert!(d.path().join("ch-stable.lock").exists(), "lock file is never deleted");
+    assert!(
+        d.path().join("ch-stable.lock").exists(),
+        "lock file is never deleted"
+    );
     assert!(FileStateStore::acquire(d.path(), "stable", T).is_ok());
 }
 
@@ -62,7 +69,10 @@ fn wrong_channel_calls_and_foreign_or_corrupt_files_are_rejected() {
     let d = tempfile::tempdir().unwrap();
     let mut s = FileStateStore::acquire(d.path(), "stable", T).unwrap();
     assert_eq!(s.load("beta").unwrap_err().kind(), ErrorKind::InvalidInput);
-    assert_eq!(s.store(&st("beta", 1, 1)).unwrap_err().kind(), ErrorKind::InvalidInput);
+    assert_eq!(
+        s.store(&st("beta", 1, 1)).unwrap_err().kind(),
+        ErrorKind::InvalidInput
+    );
     let p = s.state_path();
     for bad in [
         &b"garbage"[..],

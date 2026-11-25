@@ -40,9 +40,8 @@ fn matches_contract_regex(name: &str) -> bool {
 
 /// Shell metacharacters and whitespace that must never survive.
 const SHELL_METACHARS: &[char] = &[
-    ';', '|', '&', '$', '`', '(', ')', '<', '>', '\\', '"', '\'', '*', '?',
-    '[', ']', '#', '~', '!', '{', '}', ',', ':', '=', '%', '@', '^', ' ',
-    '\t', '\n', '\r', '\0',
+    ';', '|', '&', '$', '`', '(', ')', '<', '>', '\\', '"', '\'', '*', '?', '[', ']', '#', '~',
+    '!', '{', '}', ',', ':', '=', '%', '@', '^', ' ', '\t', '\n', '\r', '\0',
 ];
 
 // ---------- strategies ----------
@@ -56,33 +55,43 @@ fn arb_any_string() -> impl Strategy<Value = String> {
 /// at least one shell metachar / separator / NUL / non-ASCII char is
 /// spliced into an otherwise benign name.
 fn arb_blacklisted_string() -> impl Strategy<Value = String> {
-    (arb_any_string(), prop::option::weighted(0.4, prop_oneof![
-        Just(SHELL_METACHARS.to_vec()),
-        Just(vec!['/', '\\']),
-        Just(vec!['\u{0}']),
-        // Unicode lookalikes and invisibles: Cyrillic homoglyphs of
-        // "r" and "a", fullwidth letters, zero-width chars, combining marks.
-        Just(vec!['\u{0430}', '\u{0440}', '\u{FF41}', '\u{200B}', '\u{0301}']),
-    ]))
-    .prop_map(|(base, pool)| {
-        let bad = pool;
-        let mut chars: Vec<char> = base.chars().take(60).collect();
-        // Splice every bad char in; a name carrying any of them can never
-        // legitimately pass.
-        for (i, c) in bad.iter().flatten().enumerate() {
-            chars.insert((i * 3).min(chars.len()), *c);
-        }
-        let mut name: String = chars.into_iter().collect();
-        // Also append tail metachars to catch suffix-injection attempts.
-        name.push('|');
-        name
-    })
+    (
+        arb_any_string(),
+        prop::option::weighted(
+            0.4,
+            prop_oneof![
+                Just(SHELL_METACHARS.to_vec()),
+                Just(vec!['/', '\\']),
+                Just(vec!['\u{0}']),
+                // Unicode lookalikes and invisibles: Cyrillic homoglyphs of
+                // "r" and "a", fullwidth letters, zero-width chars, combining marks.
+                Just(vec![
+                    '\u{0430}', '\u{0440}', '\u{FF41}', '\u{200B}', '\u{0301}'
+                ]),
+            ],
+        ),
+    )
+        .prop_map(|(base, pool)| {
+            let bad = pool;
+            let mut chars: Vec<char> = base.chars().take(60).collect();
+            // Splice every bad char in; a name carrying any of them can never
+            // legitimately pass.
+            for (i, c) in bad.iter().flatten().enumerate() {
+                chars.insert((i * 3).min(chars.len()), *c);
+            }
+            let mut name: String = chars.into_iter().collect();
+            // Also append tail metachars to catch suffix-injection attempts.
+            name.push('|');
+            name
+        })
 }
 
 /// Names conforming to the contract regex.
 fn arb_valid_name() -> impl Strategy<Value = String> {
-    (prop::string::string_regex("[A-Za-z0-9]").expect("first-char regex"),
-     prop::string::string_regex("[A-Za-z0-9.+_-]{0,99}").expect("rest regex"))
+    (
+        prop::string::string_regex("[A-Za-z0-9]").expect("first-char regex"),
+        prop::string::string_regex("[A-Za-z0-9.+_-]{0,99}").expect("rest regex"),
+    )
         .prop_map(|(first, rest)| format!("{first}{rest}"))
 }
 

@@ -26,14 +26,35 @@ pub enum V2Error {
     SignatureInvalid,
     SignedByUnknown(String),
     SignedByRetired(String),
-    SignedByNotValidAt { key_id: String, issued_at: i64 },
+    SignedByNotValidAt {
+        key_id: String,
+        issued_at: i64,
+    },
     KeyringEmpty,
-    KeyIdMismatch { key_id: String, public_key_hex: String },
-    Expired { expires_at: i64, now: i64 },
-    NotYetValid { issued_at: i64, now: i64 },
-    InvalidWindow { issued_at: i64, expires_at: i64 },
-    DowngradeRejected { stored: u64, candidate: u64 },
-    DigestMismatch { stored_hex: String, candidate_hex: String },
+    KeyIdMismatch {
+        key_id: String,
+        public_key_hex: String,
+    },
+    Expired {
+        expires_at: i64,
+        now: i64,
+    },
+    NotYetValid {
+        issued_at: i64,
+        now: i64,
+    },
+    InvalidWindow {
+        issued_at: i64,
+        expires_at: i64,
+    },
+    DowngradeRejected {
+        stored: u64,
+        candidate: u64,
+    },
+    DigestMismatch {
+        stored_hex: String,
+        candidate_hex: String,
+    },
     NoSequence,
     DuplicateKeyId(String),
     InvalidKeyWindow(String),
@@ -142,8 +163,7 @@ pub fn parse_v2(bytes: &[u8]) -> Result<V2Allowlist, V2Error> {
     struct Probe {
         version: Option<u64>,
     }
-    let probe: Probe =
-        serde_json::from_slice(bytes).map_err(|e| V2Error::Json(e.to_string()))?;
+    let probe: Probe = serde_json::from_slice(bytes).map_err(|e| V2Error::Json(e.to_string()))?;
     let version = probe
         .version
         .ok_or_else(|| V2Error::BadFormat("missing version".into()))?;
@@ -207,8 +227,10 @@ fn canonical_value(doc: &V2Allowlist) -> Result<serde_json::Value, V2Error> {
 fn sort_json(v: serde_json::Value) -> serde_json::Value {
     match v {
         serde_json::Value::Object(map) => {
-            let sorted: BTreeMap<String, serde_json::Value> =
-                map.into_iter().map(|(k, val)| (k, sort_json(val))).collect();
+            let sorted: BTreeMap<String, serde_json::Value> = map
+                .into_iter()
+                .map(|(k, val)| (k, sort_json(val)))
+                .collect();
             serde_json::Value::Object(sorted.into_iter().collect())
         }
         serde_json::Value::Array(arr) => {
@@ -220,11 +242,7 @@ fn sort_json(v: serde_json::Value) -> serde_json::Value {
 
 /// Verifies a v2 document. `stored` is `(sequence, canonical_digest_hex)` from
 /// the previous accepted document, or `None` on first run.
-pub fn verify_v2(
-    doc: &V2Allowlist,
-    now: i64,
-    stored: Option<(u64, &str)>,
-) -> Result<(), V2Error> {
+pub fn verify_v2(doc: &V2Allowlist, now: i64, stored: Option<(u64, &str)>) -> Result<(), V2Error> {
     if doc.version != 2 {
         return Err(V2Error::UnsupportedVersion(doc.version));
     }
@@ -238,10 +256,16 @@ pub fn verify_v2(
         });
     }
     if now < doc.issued_at {
-        return Err(V2Error::NotYetValid { issued_at: doc.issued_at, now });
+        return Err(V2Error::NotYetValid {
+            issued_at: doc.issued_at,
+            now,
+        });
     }
     if now >= doc.expires_at {
-        return Err(V2Error::Expired { expires_at: doc.expires_at, now });
+        return Err(V2Error::Expired {
+            expires_at: doc.expires_at,
+            now,
+        });
     }
     if doc.keyring.keys.is_empty() {
         return Err(V2Error::KeyringEmpty);
@@ -296,8 +320,7 @@ pub fn verify_v2(
     if doc.signature_hex.len() != 128 || !is_hex128(&doc.signature_hex) {
         return Err(V2Error::SignatureInvalid);
     }
-    let pk_bytes = hex::decode(&signer.public_key_hex)
-        .map_err(|_| V2Error::SignatureInvalid)?;
+    let pk_bytes = hex::decode(&signer.public_key_hex).map_err(|_| V2Error::SignatureInvalid)?;
     let sig_bytes = hex::decode(&doc.signature_hex).map_err(|_| V2Error::SignatureInvalid)?;
     let payload = canonical_payload_bytes(doc)?;
     verify_ed25519(&pk_bytes, &payload, &sig_bytes)?;
@@ -333,7 +356,8 @@ fn verify_ed25519(pk: &[u8], msg: &[u8], sig: &[u8]) -> Result<(), V2Error> {
     let sig_arr: [u8; 64] = sig.try_into().map_err(|_| V2Error::SignatureInvalid)?;
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|_| V2Error::SignatureInvalid)?;
     let signature = Signature::from_bytes(&sig_arr);
-    vk.verify_strict(msg, &signature).map_err(|_| V2Error::SignatureInvalid)
+    vk.verify_strict(msg, &signature)
+        .map_err(|_| V2Error::SignatureInvalid)
 }
 
 // ---------------------------------------------------------------------------
@@ -346,11 +370,15 @@ pub fn derive_key_id(public_key_hex: &str) -> String {
 }
 
 fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 fn is_hex128(s: &str) -> bool {
-    s.len() == 128 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    s.len() == 128
+        && s.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +460,13 @@ mod tests {
         let mut doc = sample_v2(&sk, 5, 1_700_000_000);
         sign_doc(&mut doc, &sk);
         let err = verify_v2(&doc, 1_700_000_100, Some((10, "deadbeef"))).unwrap_err();
-        assert_eq!(err, V2Error::DowngradeRejected { stored: 10, candidate: 5 });
+        assert_eq!(
+            err,
+            V2Error::DowngradeRejected {
+                stored: 10,
+                candidate: 5
+            }
+        );
     }
 
     #[test]
@@ -484,13 +518,21 @@ mod tests {
             V2Error::LegacyVersionMigrationOnly(1)
         );
         // text-v1 shape has no `version` key at all.
-        let text_v1 = br#"{"signed_by":"k","signature_hex":"","issued_at":1,"expires_at":2,"packages":[]}"#;
-        assert!(matches!(parse_v2(text_v1).unwrap_err(), V2Error::BadFormat(_)));
+        let text_v1 =
+            br#"{"signed_by":"k","signature_hex":"","issued_at":1,"expires_at":2,"packages":[]}"#;
+        assert!(matches!(
+            parse_v2(text_v1).unwrap_err(),
+            V2Error::BadFormat(_)
+        ));
     }
 
     #[test]
     fn parse_v2_rejects_unknown_versions() {
-        for bytes in [&br#"{"version":3}"#[..], &br#"{"version":0}"#[..], &br#"{"version":99}"#[..]] {
+        for bytes in [
+            &br#"{"version":3}"#[..],
+            &br#"{"version":0}"#[..],
+            &br#"{"version":99}"#[..],
+        ] {
             assert!(matches!(
                 parse_v2(bytes).unwrap_err(),
                 V2Error::UnsupportedVersion(_)
@@ -510,7 +552,10 @@ mod tests {
         let mut v: serde_json::Value = serde_json::to_value(&doc).unwrap();
         v["version"] = serde_json::json!(1);
         let bytes = serde_json::to_vec(&v).unwrap();
-        assert_eq!(parse_v2(&bytes).unwrap_err(), V2Error::LegacyVersionMigrationOnly(1));
+        assert_eq!(
+            parse_v2(&bytes).unwrap_err(),
+            V2Error::LegacyVersionMigrationOnly(1)
+        );
         // Same bytes as a typed v2 document fail verification too.
         let mut relabelled = doc.clone();
         relabelled.version = 1;
@@ -539,12 +584,18 @@ mod tests {
         sign_doc(&mut doc, &sk);
         let pk = hex::encode(sk.verifying_key().to_bytes());
         let good = crate::allowlist::Keyring {
-            keys: vec![crate::allowlist::KeyEntry { key_id: derive_key_id(&pk), public_key_hex: pk.clone() }],
+            keys: vec![crate::allowlist::KeyEntry {
+                key_id: derive_key_id(&pk),
+                public_key_hex: pk.clone(),
+            }],
         };
         assert!(verify_v2_trusted(&doc, &good, 1_700_000_100, None).is_ok());
         let opk = hex::encode(other.verifying_key().to_bytes());
         let bad = crate::allowlist::Keyring {
-            keys: vec![crate::allowlist::KeyEntry { key_id: derive_key_id(&opk), public_key_hex: opk }],
+            keys: vec![crate::allowlist::KeyEntry {
+                key_id: derive_key_id(&opk),
+                public_key_hex: opk,
+            }],
         };
         assert!(matches!(
             verify_v2_trusted(&doc, &bad, 1_700_000_100, None).unwrap_err(),
@@ -560,7 +611,10 @@ mod tests {
         let digest = canonical_digest_hex(&doc).unwrap();
         assert!(matches!(
             verify_v2(&doc, 1_700_000_100, Some((3, &digest))).unwrap_err(),
-            V2Error::DowngradeRejected { stored: 3, candidate: 2 }
+            V2Error::DowngradeRejected {
+                stored: 3,
+                candidate: 2
+            }
         ));
     }
 

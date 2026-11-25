@@ -84,9 +84,19 @@ pub fn migrate_text_v1(
     let obj = value
         .as_object()
         .ok_or_else(|| MigrateError::NotTextV1("not a JSON object".into()))?;
-    for foreign in ["version", "format", "keyring", "key_id", "entries", "signature", "sequence"] {
+    for foreign in [
+        "version",
+        "format",
+        "keyring",
+        "key_id",
+        "entries",
+        "signature",
+        "sequence",
+    ] {
         if obj.contains_key(foreign) {
-            return Err(MigrateError::NotTextV1(format!("unexpected field `{foreign}`")));
+            return Err(MigrateError::NotTextV1(format!(
+                "unexpected field `{foreign}`"
+            )));
         }
     }
     let doc = AllowlistDoc::from_json(bytes).map_err(|e| MigrateError::NotTextV1(e.to_string()))?;

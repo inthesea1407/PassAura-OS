@@ -48,7 +48,9 @@ impl Stager {
     pub fn for_state(state_path: &Path) -> Stager {
         let mut s = state_path.as_os_str().to_owned();
         s.push(".stage");
-        Stager { dir: PathBuf::from(s) }
+        Stager {
+            dir: PathBuf::from(s),
+        }
     }
 
     pub fn dir(&self) -> &Path {
@@ -93,7 +95,9 @@ impl Stager {
         {
             use std::os::unix::fs::PermissionsExt;
             if md.permissions().mode() & 0o077 != 0 {
-                return Err(StageError("stage directory is not private (needs 0700)".into()));
+                return Err(StageError(
+                    "stage directory is not private (needs 0700)".into(),
+                ));
             }
         }
         Ok(())
@@ -144,7 +148,9 @@ impl Stager {
         let path = self.file_path(name)?;
         match fs::symlink_metadata(&path) {
             Ok(md) if md.file_type().is_file() => Ok(fs::remove_file(&path)?),
-            Ok(_) => Err(StageError("refusing to remove a non-regular staged path".into())),
+            Ok(_) => Err(StageError(
+                "refusing to remove a non-regular staged path".into(),
+            )),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),
         }

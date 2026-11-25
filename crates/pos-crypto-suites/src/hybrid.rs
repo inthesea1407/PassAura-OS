@@ -47,8 +47,14 @@ pub fn generate() -> Result<(HybridSecret, HybridPublic), CryptoError> {
     let ek = dk.encapsulation_key().to_bytes();
     let ek: &[u8] = ek.as_ref();
     Ok((
-        HybridSecret { x25519: x_sk, mlkem_seed: seed },
-        HybridPublic { x25519: x_pk, mlkem_ek: ek.to_vec() },
+        HybridSecret {
+            x25519: x_sk,
+            mlkem_seed: seed,
+        },
+        HybridPublic {
+            x25519: x_pk,
+            mlkem_ek: ek.to_vec(),
+        },
     ))
 }
 
@@ -57,7 +63,10 @@ impl HybridSecret {
         let dk = kem_from_seed(&self.mlkem_seed);
         let ek = dk.encapsulation_key().to_bytes();
         let ek: &[u8] = ek.as_ref();
-        HybridPublic { x25519: x25519(*self.x25519, X25519_BASEPOINT_BYTES), mlkem_ek: ek.to_vec() }
+        HybridPublic {
+            x25519: x25519(*self.x25519, X25519_BASEPOINT_BYTES),
+            mlkem_ek: ek.to_vec(),
+        }
     }
     /// 96 bytes: x25519 scalar (32) then ML-KEM seed (64).
     pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
@@ -74,7 +83,10 @@ impl HybridSecret {
         x.copy_from_slice(&b[..32]);
         let mut s = Zeroizing::new([0u8; SEED]);
         s.copy_from_slice(&b[32..]);
-        Ok(HybridSecret { x25519: x, mlkem_seed: s })
+        Ok(HybridSecret {
+            x25519: x,
+            mlkem_seed: s,
+        })
     }
 }
 
@@ -105,7 +117,9 @@ fn wrap_key(
 /// Wraps a DEK for the holder of `to`.
 pub fn wrap_dek(to: &HybridPublic, dek: &[u8; 32]) -> Result<Vec<u8>, CryptoError> {
     if to.mlkem_ek.len() != KEM_EK {
-        return Err(CryptoError::BadInput("ML-KEM-768 encapsulation key must be 1184 bytes"));
+        return Err(CryptoError::BadInput(
+            "ML-KEM-768 encapsulation key must be 1184 bytes",
+        ));
     }
     let ek_arr = ml_kem::kem::Key::<EncapsulationKey<MlKem768>>::try_from(to.mlkem_ek.as_slice())
         .map_err(|_| CryptoError::BadInput("ML-KEM encapsulation key length"))?;
@@ -116,7 +130,9 @@ pub fn wrap_dek(to: &HybridPublic, dek: &[u8; 32]) -> Result<Vec<u8>, CryptoErro
     let eph_pub = x25519(*eph, X25519_BASEPOINT_BYTES);
     let ss_x = Zeroizing::new(x25519(*eph, to.x25519));
     if ss_x.iter().all(|b| *b == 0) {
-        return Err(CryptoError::BadInput("X25519 public key is a low-order point"));
+        return Err(CryptoError::BadInput(
+            "X25519 public key is a low-order point",
+        ));
     }
     let (ct, ss_k) = ek.encapsulate();
     let ct: &[u8] = ct.as_ref();
@@ -136,7 +152,9 @@ pub fn unwrap_dek(sk: &HybridSecret, blob: &[u8]) -> Result<Zeroizing<[u8; 32]>,
     if blob.len() < 1 + X_PUB + KEM_CT || blob[0] != VERSION {
         return Err(CryptoError::Open);
     }
-    let eph_pub: [u8; 32] = blob[1..1 + X_PUB].try_into().map_err(|_| CryptoError::Open)?;
+    let eph_pub: [u8; 32] = blob[1..1 + X_PUB]
+        .try_into()
+        .map_err(|_| CryptoError::Open)?;
     let ct = &blob[1 + X_PUB..1 + X_PUB + KEM_CT];
     let sealed = &blob[1 + X_PUB + KEM_CT..];
 

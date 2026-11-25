@@ -17,10 +17,16 @@ impl fmt::Display for NameError {
         match self {
             NameError::Empty => write!(f, "package name must not be empty"),
             NameError::TooLong(len) => {
-                write!(f, "package name length {len} exceeds maximum {MAX_PACKAGE_NAME_LEN}")
+                write!(
+                    f,
+                    "package name length {len} exceeds maximum {MAX_PACKAGE_NAME_LEN}"
+                )
             }
             NameError::InvalidStartChar(c) => {
-                write!(f, "package name must start with ASCII alphanumeric, got {c:?}")
+                write!(
+                    f,
+                    "package name must start with ASCII alphanumeric, got {c:?}"
+                )
             }
             NameError::InvalidChar(c) => {
                 write!(f, "package name contains disallowed character {c:?}")

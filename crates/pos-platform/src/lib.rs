@@ -129,7 +129,7 @@ fn validate_package_id(package: &str) -> Result<(), BackendError> {
         || package.contains("..")
         || !package
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'_' )
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'_')
     {
         return Err(BackendError::InvalidPackageId(package.to_owned()));
     }
@@ -149,11 +149,7 @@ pub struct CommandOutput {
 }
 
 pub trait CommandRunner {
-    fn run(
-        &self,
-        program: &str,
-        args: &[&str],
-    ) -> Result<CommandOutput, BackendError>;
+    fn run(&self, program: &str, args: &[&str]) -> Result<CommandOutput, BackendError>;
 }
 
 pub trait Fs {
@@ -163,10 +159,7 @@ pub trait Fs {
 }
 
 pub trait PlatformBackend {
-    fn set_allowed_credential_managers(
-        &mut self,
-        packages: &[String],
-    ) -> Result<(), BackendError>;
+    fn set_allowed_credential_managers(&mut self, packages: &[String]) -> Result<(), BackendError>;
 
     fn is_credential_manager_approved(&self, package: &str) -> bool;
 
@@ -177,17 +170,13 @@ pub trait PlatformBackend {
 // Linux
 // -----------------------------------------------------------------------------
 
-pub const LINUX_POLICY_PATH: &str =
-    "/etc/pos/credential-manager-allowlist";
+pub const LINUX_POLICY_PATH: &str = "/etc/pos/credential-manager-allowlist";
 
-pub const LINUX_APT_HOOK_PATH: &str =
-    "/etc/apt/apt.conf.d/90-pos-package-gate";
+pub const LINUX_APT_HOOK_PATH: &str = "/etc/apt/apt.conf.d/90-pos-package-gate";
 
-pub const LINUX_SYSCTL_PATH: &str =
-    "/etc/sysctl.d/90-pos-hardening.conf";
+pub const LINUX_SYSCTL_PATH: &str = "/etc/sysctl.d/90-pos-hardening.conf";
 
-pub const LINUX_APPARMOR_PROFILE_PATH: &str =
-    "/etc/apparmor.d/pos-credential-manager-gate";
+pub const LINUX_APPARMOR_PROFILE_PATH: &str = "/etc/apparmor.d/pos-credential-manager-gate";
 
 pub const LINUX_APT_HOOK: &str = r#"
 DPkg::Pre-Install-Pkgs {
@@ -239,18 +228,9 @@ impl<R: CommandRunner, F: Fs> LinuxBackend<R, F> {
     /// No privileged commands are run and no files are written.
     pub fn dry_run_files(&self) -> Vec<(String, String)> {
         vec![
-            (
-                LINUX_POLICY_PATH.to_owned(),
-                self.policy_file_contents(),
-            ),
-            (
-                LINUX_APT_HOOK_PATH.to_owned(),
-                LINUX_APT_HOOK.to_owned(),
-            ),
-            (
-                LINUX_SYSCTL_PATH.to_owned(),
-                LINUX_SYSCTL_POLICY.to_owned(),
-            ),
+            (LINUX_POLICY_PATH.to_owned(), self.policy_file_contents()),
+            (LINUX_APT_HOOK_PATH.to_owned(), LINUX_APT_HOOK.to_owned()),
+            (LINUX_SYSCTL_PATH.to_owned(), LINUX_SYSCTL_POLICY.to_owned()),
             (
                 LINUX_APPARMOR_PROFILE_PATH.to_owned(),
                 LINUX_APPARMOR_PROFILE.to_owned(),
@@ -266,13 +246,11 @@ impl<R: CommandRunner, F: Fs> LinuxBackend<R, F> {
         expected: &str,
     ) -> HardeningCheck {
         match self.runner.run(program, args) {
-            Ok(output) if output.success && output.stdout.contains(expected) => {
-                HardeningCheck {
-                    name: name.to_owned(),
-                    status: CheckStatus::Pass,
-                    details: output.stdout,
-                }
-            }
+            Ok(output) if output.success && output.stdout.contains(expected) => HardeningCheck {
+                name: name.to_owned(),
+                status: CheckStatus::Pass,
+                details: output.stdout,
+            },
             Ok(output) => HardeningCheck {
                 name: name.to_owned(),
                 status: CheckStatus::Fail,
@@ -290,12 +268,7 @@ impl<R: CommandRunner, F: Fs> LinuxBackend<R, F> {
         }
     }
 
-    fn check_file(
-        &self,
-        name: &str,
-        path: &str,
-        expected: &str,
-    ) -> HardeningCheck {
+    fn check_file(&self, name: &str, path: &str, expected: &str) -> HardeningCheck {
         match self.fs.read(path) {
             Ok(contents) if contents.contains(expected) => HardeningCheck {
                 name: name.to_owned(),
@@ -317,10 +290,7 @@ impl<R: CommandRunner, F: Fs> LinuxBackend<R, F> {
 }
 
 impl<R: CommandRunner, F: Fs> PlatformBackend for LinuxBackend<R, F> {
-    fn set_allowed_credential_managers(
-        &mut self,
-        packages: &[String],
-    ) -> Result<(), BackendError> {
+    fn set_allowed_credential_managers(&mut self, packages: &[String]) -> Result<(), BackendError> {
         let policy = CredentialManagerPolicy::new(packages.iter().cloned())?;
         self.policy = policy;
 
@@ -348,12 +318,9 @@ impl<R: CommandRunner, F: Fs> PlatformBackend for LinuxBackend<R, F> {
             "kernel.kptr_restrict = 2",
         ));
 
-        report.checks.push(self.check_command(
-            "apparmor_loaded",
-            "aa-status",
-            &[],
-            "apparmor",
-        ));
+        report
+            .checks
+            .push(self.check_command("apparmor_loaded", "aa-status", &[], "apparmor"));
 
         report.checks.push(self.check_command(
             "apt_package_gate_hook",
@@ -454,17 +421,15 @@ impl<R: CommandRunner, F: Fs> WindowsBackend<R, F> {
 }
 
 fn xml_escape(value: &str) -> String {
-    value.replace('&', "&amp;")
+    value
+        .replace('&', "&amp;")
         .replace('"', "&quot;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
 }
 
 impl<R: CommandRunner, F: Fs> PlatformBackend for WindowsBackend<R, F> {
-    fn set_allowed_credential_managers(
-        &mut self,
-        packages: &[String],
-    ) -> Result<(), BackendError> {
+    fn set_allowed_credential_managers(&mut self, packages: &[String]) -> Result<(), BackendError> {
         self.policy = CredentialManagerPolicy::new(packages.iter().cloned())?;
         Ok(())
     }
@@ -529,9 +494,7 @@ impl<R: CommandRunner, F: Fs> AndroidBackend<R, F> {
         AndroidPolicyRequest {
             allowed_packages: self.policy.allowed_packages.iter().cloned().collect(),
             request_type: String::from("credential_manager_allowlist"),
-            enforcement_scope: String::from(
-                "device_owner_app_or_system_integration_required",
-            ),
+            enforcement_scope: String::from("device_owner_app_or_system_integration_required"),
         }
     }
 
@@ -556,10 +519,7 @@ impl<R: CommandRunner, F: Fs> AndroidBackend<R, F> {
 }
 
 impl<R: CommandRunner, F: Fs> PlatformBackend for AndroidBackend<R, F> {
-    fn set_allowed_credential_managers(
-        &mut self,
-        packages: &[String],
-    ) -> Result<(), BackendError> {
+    fn set_allowed_credential_managers(&mut self, packages: &[String]) -> Result<(), BackendError> {
         self.policy = CredentialManagerPolicy::new(packages.iter().cloned())?;
         Ok(())
     }
@@ -635,7 +595,9 @@ mod tests {
 
     impl FakeRunner {
         fn set_response(&self, command: &str, output: CommandOutput) {
-            self.responses.borrow_mut().insert(command.to_owned(), output);
+            self.responses
+                .borrow_mut()
+                .insert(command.to_owned(), output);
         }
 
         fn set_failure(&self, command: &str, message: &str) {
@@ -646,11 +608,7 @@ mod tests {
     }
 
     impl CommandRunner for FakeRunner {
-        fn run(
-            &self,
-            program: &str,
-            _args: &[&str],
-        ) -> Result<CommandOutput, BackendError> {
+        fn run(&self, program: &str, _args: &[&str]) -> Result<CommandOutput, BackendError> {
             if let Some(message) = self.failures.borrow().get(program) {
                 return Err(BackendError::Command(message.clone()));
             }
@@ -809,7 +767,9 @@ mod tests {
     #[test]
     fn linux_set_policy_updates_allowlist() {
         let mut backend = LinuxBackend::new(FakeRunner::default(), FakeFs::default());
-        backend.set_allowed_credential_managers(&packages()).unwrap();
+        backend
+            .set_allowed_credential_managers(&packages())
+            .unwrap();
         assert!(backend.is_credential_manager_approved("com.inthesea.passaura"));
     }
 
@@ -843,7 +803,9 @@ mod tests {
     fn linux_dry_run_contains_sysctl() {
         let backend = LinuxBackend::new(FakeRunner::default(), FakeFs::default());
         let files = backend.dry_run_files();
-        assert!(files.iter().any(|(_, content)| content.contains("kptr_restrict")));
+        assert!(files
+            .iter()
+            .any(|(_, content)| content.contains("kptr_restrict")));
     }
 
     // 16
@@ -899,9 +861,10 @@ mod tests {
         runner.set_response("aa-status", ok_output("apparmor is enabled"));
         let backend = LinuxBackend::new(runner, FakeFs::default());
         let report = backend.hardening_status();
-        assert!(report.checks.iter().any(|check| {
-            check.name == "apparmor_loaded" && check.status == CheckStatus::Pass
-        }));
+        assert!(report
+            .checks
+            .iter()
+            .any(|check| { check.name == "apparmor_loaded" && check.status == CheckStatus::Pass }));
     }
 
     // 21
@@ -932,7 +895,9 @@ mod tests {
     #[test]
     fn windows_policy_is_audit_only() {
         let mut backend = WindowsBackend::new(FakeRunner::default(), FakeFs::default());
-        backend.set_allowed_credential_managers(&packages()).unwrap();
+        backend
+            .set_allowed_credential_managers(&packages())
+            .unwrap();
         let plan = backend.dry_run_policy();
         assert!(plan.applocker_xml.contains("AuditOnly"));
     }
@@ -941,8 +906,13 @@ mod tests {
     #[test]
     fn windows_policy_includes_allowed_package() {
         let mut backend = WindowsBackend::new(FakeRunner::default(), FakeFs::default());
-        backend.set_allowed_credential_managers(&packages()).unwrap();
-        assert!(backend.dry_run_policy().applocker_xml.contains("com.inthesea.passaura"));
+        backend
+            .set_allowed_credential_managers(&packages())
+            .unwrap();
+        assert!(backend
+            .dry_run_policy()
+            .applocker_xml
+            .contains("com.inthesea.passaura"));
     }
 
     // 25
@@ -974,18 +944,19 @@ mod tests {
     #[test]
     fn android_policy_request_contains_package() {
         let mut backend = AndroidBackend::new(FakeRunner::default(), FakeFs::default());
-        backend.set_allowed_credential_managers(&packages()).unwrap();
-        assert_eq!(
-            backend.policy_request().allowed_packages,
-            packages()
-        );
+        backend
+            .set_allowed_credential_managers(&packages())
+            .unwrap();
+        assert_eq!(backend.policy_request().allowed_packages, packages());
     }
 
     // 29
     #[test]
     fn android_json_has_request_type() {
         let backend = AndroidBackend::new(FakeRunner::default(), FakeFs::default());
-        assert!(backend.policy_request_json().contains("credential_manager_allowlist"));
+        assert!(backend
+            .policy_request_json()
+            .contains("credential_manager_allowlist"));
     }
 
     // 30

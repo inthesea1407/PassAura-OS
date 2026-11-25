@@ -6,7 +6,10 @@ fn gate() -> Command {
 
 #[test]
 fn missing_file_list_fails_closed() {
-    let out = gate().args(["somepkg", "/nonexistent/files-list"]).output().unwrap();
+    let out = gate()
+        .args(["somepkg", "/nonexistent/files-list"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
 
@@ -16,7 +19,12 @@ fn missing_desktop_entry_fails_closed() {
     std::fs::create_dir_all(&dir).unwrap();
     let list = dir.join("files");
     std::fs::write(&list, "/usr/bin/harmless\n").unwrap();
-    let out = gate().arg("somepkg").arg(&list).arg("/nonexistent/x.desktop").output().unwrap();
+    let out = gate()
+        .arg("somepkg")
+        .arg(&list)
+        .arg("/nonexistent/x.desktop")
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
 

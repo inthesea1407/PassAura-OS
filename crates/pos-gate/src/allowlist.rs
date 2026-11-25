@@ -74,9 +74,16 @@ impl AllowlistDoc {
         serde_json::from_slice(b).map_err(|e| GateError::Json(e.to_string()))
     }
     pub fn message(&self) -> Vec<u8> {
-        let mut pk: Vec<String> = self.packages.iter().map(|p| format!("{}@{}", p.name, p.version)).collect();
+        let mut pk: Vec<String> = self
+            .packages
+            .iter()
+            .map(|p| format!("{}@{}", p.name, p.version))
+            .collect();
         pk.sort();
-        let mut m = format!("passaura-allowlist-v1\n{}\n{}\n{}\n", self.signed_by, self.issued_at, self.expires_at);
+        let mut m = format!(
+            "passaura-allowlist-v1\n{}\n{}\n{}\n",
+            self.signed_by, self.issued_at, self.expires_at
+        );
         for p in pk {
             m.push_str(&p);
             m.push('\n');
@@ -125,8 +132,22 @@ mod tests {
 
     fn setup() -> (SigningKey, Keyring, AllowlistDoc) {
         let sk = SigningKey::from_bytes(&[7u8; 32]);
-        let kr = Keyring { keys: vec![KeyEntry { key_id: "ed25519:t".into(), public_key_hex: hex::encode(sk.verifying_key().to_bytes()) }] };
-        let mut d = AllowlistDoc { signed_by: "ed25519:t".into(), signature_hex: String::new(), issued_at: 10, expires_at: 100, packages: vec![PackageEntry { name: "ripgrep".into(), version: "14".into() }] };
+        let kr = Keyring {
+            keys: vec![KeyEntry {
+                key_id: "ed25519:t".into(),
+                public_key_hex: hex::encode(sk.verifying_key().to_bytes()),
+            }],
+        };
+        let mut d = AllowlistDoc {
+            signed_by: "ed25519:t".into(),
+            signature_hex: String::new(),
+            issued_at: 10,
+            expires_at: 100,
+            packages: vec![PackageEntry {
+                name: "ripgrep".into(),
+                version: "14".into(),
+            }],
+        };
         d.sign(&sk);
         (sk, kr, d)
     }
@@ -140,7 +161,10 @@ mod tests {
     #[test]
     fn tampered_rejected() {
         let (_, kr, mut d) = setup();
-        d.packages.push(PackageEntry { name: "evil".into(), version: "1".into() });
+        d.packages.push(PackageEntry {
+            name: "evil".into(),
+            version: "1".into(),
+        });
         assert_eq!(verify_allowlist(&kr, &d, 50), Err(GateError::BadSignature));
     }
     #[test]
@@ -153,7 +177,10 @@ mod tests {
     fn unknown_key_and_garbage() {
         let (_, _, d) = setup();
         let empty = Keyring { keys: vec![] };
-        assert!(matches!(verify_allowlist(&empty, &d, 50), Err(GateError::UnknownKey(_))));
+        assert!(matches!(
+            verify_allowlist(&empty, &d, 50),
+            Err(GateError::UnknownKey(_))
+        ));
         let (_, kr, mut d2) = setup();
         d2.signature_hex = "00".into();
         assert_eq!(verify_allowlist(&kr, &d2, 50), Err(GateError::BadSignature));

@@ -34,8 +34,20 @@ impl PackageManifest {
     pub fn canonical(&self) -> Vec<u8> {
         let mut ents: Vec<&str> = self.entitlements.iter().map(|e| ent_name(*e)).collect();
         ents.sort();
-        let hex: String = self.payload_sha256.iter().map(|b| format!("{b:02x}")).collect();
-        format!("pos-pkg-v1\nteam={}\nname={}\nversion={}\nent={}\nsha256={}\n", self.team, self.name, self.version, ents.join(","), hex).into_bytes()
+        let hex: String = self
+            .payload_sha256
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!(
+            "pos-pkg-v1\nteam={}\nname={}\nversion={}\nent={}\nsha256={}\n",
+            self.team,
+            self.name,
+            self.version,
+            ents.join(","),
+            hex
+        )
+        .into_bytes()
     }
 }
 
@@ -50,7 +62,14 @@ pub struct SignedPackage {
 }
 
 /// Store-side: sign a manifest for a payload.
-pub fn sign(key: &SigningKey, team: &str, name: &str, version: u32, ents: &[Entitlement], payload: &[u8]) -> SignedPackage {
+pub fn sign(
+    key: &SigningKey,
+    team: &str,
+    name: &str,
+    version: u32,
+    ents: &[Entitlement],
+    payload: &[u8],
+) -> SignedPackage {
     let manifest = PackageManifest {
         team: team.into(),
         name: name.into(),
@@ -59,7 +78,11 @@ pub fn sign(key: &SigningKey, team: &str, name: &str, version: u32, ents: &[Enti
         payload_sha256: sha256(payload),
     };
     let sig = key.sign(&manifest.canonical());
-    SignedPackage { manifest, signature: sig.to_bytes(), payload: payload.to_vec() }
+    SignedPackage {
+        manifest,
+        signature: sig.to_bytes(),
+        payload: payload.to_vec(),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -74,13 +97,18 @@ pub enum VerifyError {
 /// Proof that signature and payload hash both checked out.
 pub struct Verified<'a>(&'a SignedPackage);
 
-pub fn verify<'a>(store_key: &VerifyingKey, p: &'a SignedPackage) -> Result<Verified<'a>, VerifyError> {
+pub fn verify<'a>(
+    store_key: &VerifyingKey,
+    p: &'a SignedPackage,
+) -> Result<Verified<'a>, VerifyError> {
     let bad = |v: &str| v.is_empty() || v.chars().any(|c| c.is_control());
     if bad(&p.manifest.team) || bad(&p.manifest.name) {
         return Err(VerifyError::InvalidManifest);
     }
     let sig = Signature::from_bytes(&p.signature);
-    store_key.verify_strict(&p.manifest.canonical(), &sig).map_err(|_| VerifyError::BadSignature)?;
+    store_key
+        .verify_strict(&p.manifest.canonical(), &sig)
+        .map_err(|_| VerifyError::BadSignature)?;
     if sha256(&p.payload) != p.manifest.payload_sha256 {
         return Err(VerifyError::PayloadHashMismatch);
     }
@@ -91,7 +119,13 @@ pub fn verify<'a>(store_key: &VerifyingKey, p: &'a SignedPackage) -> Result<Veri
 /// approved for this team (from the store database).
 pub fn decide(v: &Verified, approved: &[Entitlement], sideloaded: bool) -> InstallVerdict {
     let m = &v.0.manifest;
-    install_decision(&Manifest { team: &m.team, requested: &m.entitlements, approved, store_signed: true, sideloaded })
+    install_decision(&Manifest {
+        team: &m.team,
+        requested: &m.entitlements,
+        approved,
+        store_signed: true,
+        sideloaded,
+    })
 }
 
 #[cfg(test)]
@@ -100,9 +134,15 @@ mod tests {
     fn newline_in_team_or_name_is_rejected() {
         let k = super::SigningKey::from_bytes(&[7u8; 32]);
         let p = super::sign(&k, "t\nname=x", "n", 1, &[], b"data");
-        assert!(matches!(super::verify(&k.verifying_key(), &p), Err(super::VerifyError::InvalidManifest)));
+        assert!(matches!(
+            super::verify(&k.verifying_key(), &p),
+            Err(super::VerifyError::InvalidManifest)
+        ));
         let p = super::sign(&k, "t", "", 1, &[], b"data");
-        assert!(matches!(super::verify(&k.verifying_key(), &p), Err(super::VerifyError::InvalidManifest)));
+        assert!(matches!(
+            super::verify(&k.verifying_key(), &p),
+            Err(super::VerifyError::InvalidManifest)
+        ));
     }
 
     use super::*;
@@ -114,9 +154,19 @@ mod tests {
     #[test]
     fn good_package_verifies_and_installs() {
         let k = key(1);
-        let p = sign(&k, "dev.acme", "calc", 1, &[Entitlement::Network], b"payload");
+        let p = sign(
+            &k,
+            "dev.acme",
+            "calc",
+            1,
+            &[Entitlement::Network],
+            b"payload",
+        );
         let v = verify(&k.verifying_key(), &p).unwrap();
-        assert_eq!(decide(&v, &[Entitlement::Network], false), InstallVerdict::Install);
+        assert_eq!(
+            decide(&v, &[Entitlement::Network], false),
+            InstallVerdict::Install
+        );
     }
 
     #[test]
@@ -124,21 +174,39 @@ mod tests {
         let k = key(1);
         let mut p = sign(&k, "dev.acme", "calc", 1, &[], b"payload");
         p.payload = b"evil".to_vec();
-        assert!(matches!(verify(&k.verifying_key(), &p), Err(VerifyError::PayloadHashMismatch)));
+        assert!(matches!(
+            verify(&k.verifying_key(), &p),
+            Err(VerifyError::PayloadHashMismatch)
+        ));
     }
 
     #[test]
     fn tampered_manifest_entitlements_rejected() {
         let k = key(1);
-        let mut p = sign(&k, "dev.acme", "calc", 1, &[Entitlement::Network], b"payload");
-        p.manifest.entitlements.push(Entitlement::CredentialProvider);
-        assert!(matches!(verify(&k.verifying_key(), &p), Err(VerifyError::BadSignature)));
+        let mut p = sign(
+            &k,
+            "dev.acme",
+            "calc",
+            1,
+            &[Entitlement::Network],
+            b"payload",
+        );
+        p.manifest
+            .entitlements
+            .push(Entitlement::CredentialProvider);
+        assert!(matches!(
+            verify(&k.verifying_key(), &p),
+            Err(VerifyError::BadSignature)
+        ));
     }
 
     #[test]
     fn wrong_signer_rejected() {
         let p = sign(&key(2), "dev.acme", "calc", 1, &[], b"payload");
-        assert!(matches!(verify(&key(1).verifying_key(), &p), Err(VerifyError::BadSignature)));
+        assert!(matches!(
+            verify(&key(1).verifying_key(), &p),
+            Err(VerifyError::BadSignature)
+        ));
     }
 
     #[test]
