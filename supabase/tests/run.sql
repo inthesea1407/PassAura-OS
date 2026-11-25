@@ -6,3 +6,4 @@
 \i supabase/tests/40_rate_limit.sql
 \i supabase/tests/60_audit.sql
 \i supabase/tests/70_premium_batches.sql
+\i supabase/tests/80_payments.sql
