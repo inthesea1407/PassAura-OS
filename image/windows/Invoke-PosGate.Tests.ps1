@@ -18,10 +18,10 @@ BeforeAll {
         return $path
     }
 
-    function script:Invoke-Gate([string]$PackageId, [string]$Allowlist, [switch]$WhatIf) {
+    function script:Invoke-Gate([string]$PackageId, [string]$Allowlist, [switch]$DryRun) {
         $env:PATH = "$($script:Work);$env:PATH"
         $argList = @('-NoProfile', '-File', $script:Script, '-PackageId', $PackageId, '-AllowlistPath', $Allowlist)
-        if ($WhatIf) { $argList += '-WhatIf' }
+        if ($DryRun) { $argList += '-WhatIf' }
         & pwsh @argList *> $null
         return $LASTEXITCODE
     }
@@ -64,7 +64,7 @@ Describe 'Invoke-PosGate' {
 
     It 'does not call winget with -WhatIf' {
         $list = New-Allowlist @('Microsoft.VisualStudioCode')
-        Invoke-Gate 'Microsoft.VisualStudioCode' $list -WhatIf | Should -Be 0
+        Invoke-Gate 'Microsoft.VisualStudioCode' $list -DryRun | Should -Be 0
         Test-Path $script:Marker | Should -BeFalse
     }
 }
