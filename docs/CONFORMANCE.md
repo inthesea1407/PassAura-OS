@@ -17,3 +17,8 @@ They fail if the committed file differs from what the code produces, then replay
 the committed file through the verifier.
 Regenerate: `UPDATE_VECTORS=1 cargo test -p pos-gate --test conformance_v2` (same for pos-core).
 Regeneration should be a reviewed change.
+
+Format scope: only v2 is a runtime format (see `docs/ALLOWLIST_FORMAT.md`). The v2 canonical bytes
+and the committed `allowlist_v2.json` vectors were not changed by the v1 removal/migration work.
+Migration and type-confusion tests live in `crates/pos-gate/tests/migrate_v1.rs` and the unit tests
+in `allowlist_v2.rs`.

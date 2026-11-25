@@ -3,57 +3,17 @@
 
 ## 1. Document format
 
-The allowlist is distributed as JSON with these fields:
-
-- `version`: format version
-- `issued_at`: Unix timestamp in seconds
-- `expires_at`: Unix timestamp in seconds
-- `key_id`: identifier of the signing key
-- `entries`: array of package entries
-- `signature`: detached Ed25519 signature, Base64 encoded
-
-Each entry contains:
-
-- `name`
-- `publisher`
-- `sha256`
-
-The signature is stored in the document but is not included in the
-signature payload itself.
+The runtime format is allowlist v2 only. See `docs/ALLOWLIST_FORMAT.md` for the
+fields, the signed bytes, and the verification order. The earlier JSON signing
+format that used the domain separator `PassAuraOS-Allowlist-Signature-v1` and a
+binary canonical layout was removed (`allowlist_signing.rs`); it is not accepted
+at runtime and cannot be migrated.
 
 ## 2. Canonical signing format
 
-Version 1 uses a binary canonical representation. JSON formatting,
-whitespace, and JSON key order do not affect the signature.
-
-The byte sequence consists of:
-
-1. Domain separator:
-   `PassAuraOS-Allowlist-Signature-v1\0`
-2. Version as unsigned 32-bit big-endian integer
-3. `issued_at` as unsigned 64-bit big-endian integer
-4. `expires_at` as unsigned 64-bit big-endian integer
-5. `key_id` as a 32-bit big-endian byte length followed by UTF-8 bytes
-6. Entry count as unsigned 32-bit big-endian integer
-7. Entries sorted by name, publisher, and lowercase SHA-256
-8. Each entry field encoded as:
-   - unsigned 32-bit big-endian byte length
-   - UTF-8 bytes
-
-Fields signed:
-
-- version
-- issued_at
-- expires_at
-- key_id
-- every entry name
-- every entry publisher
-- every entry SHA-256
-
-The signature field itself is excluded.
-
-The domain separator prevents accidental reuse of the signature in a
-different protocol.
+v2 signs the sorted-key canonical JSON of the document without `signature_hex`
+(`allowlist_v2::canonical_payload_bytes`). JSON key order and whitespace do not
+change the signed bytes. Signatures are checked with Ed25519 `verify_strict`.
 
 ## 3. Key roles
 

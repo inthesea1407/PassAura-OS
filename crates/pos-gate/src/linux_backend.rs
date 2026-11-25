@@ -1,4 +1,5 @@
-use crate::allowlist::{verify_allowlist, AllowlistDoc, GateError, Keyring};
+use crate::allowlist::Keyring;
+use crate::allowlist_v2::{verify_v2_trusted, V2Allowlist, V2Error};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,7 +13,7 @@ pub enum PackageBackendError {
     InvalidPackageName,
     InvalidFlatpakRemote,
     InvalidFlatpakAppId,
-    AllowlistVerification(GateError),
+    AllowlistVerification(V2Error),
     PackageNotAllowed,
     RunnerFailure {
         program: String,
@@ -78,31 +79,35 @@ pub trait PackageBackend {
     fn install(
         &mut self,
         package: &str,
-        doc: &AllowlistDoc,
-        public_keys: &Keyring,
-        now: u64,
+        doc: &V2Allowlist,
+        trusted: &Keyring,
+        now: i64,
+        stored: Option<(u64, &str)>,
         mode: InstallMode,
     ) -> Result<InstallReport, PackageBackendError>;
 }
 
 struct VerifiedAllowlist<'a> {
-    doc: &'a AllowlistDoc,
+    doc: &'a V2Allowlist,
 }
 
 impl<'a> VerifiedAllowlist<'a> {
     fn new(
-        doc: &'a AllowlistDoc,
-        public_keys: &Keyring,
-        now: u64,
+        doc: &'a V2Allowlist,
+        trusted: &Keyring,
+        now: i64,
+        stored: Option<(u64, &str)>,
     ) -> Result<Self, PackageBackendError> {
-        verify_allowlist(public_keys, doc, now)
+        // Signature over the canonical bytes, then key validity, then
+        // sequence/digest against `stored`. Only v2 documents get here.
+        verify_v2_trusted(doc, trusted, now, stored)
             .map_err(PackageBackendError::AllowlistVerification)?;
 
         Ok(Self { doc })
     }
 
     fn contains(&self, package: &str) -> bool {
-        self.doc.packages.iter().any(|entry| {
+        self.doc.entries.iter().any(|entry| {
             entry.name == package
         })
     }
@@ -224,9 +229,10 @@ impl<R: CommandRunner> PackageBackend for AptDpkgBackend<R> {
     fn install(
         &mut self,
         package: &str,
-        doc: &AllowlistDoc,
-        public_keys: &Keyring,
-        now: u64,
+        doc: &V2Allowlist,
+        trusted: &Keyring,
+        now: i64,
+        stored: Option<(u64, &str)>,
         mode: InstallMode,
     ) -> Result<InstallReport, PackageBackendError> {
         // Validate untrusted input before verification or execution.
@@ -236,7 +242,7 @@ impl<R: CommandRunner> PackageBackend for AptDpkgBackend<R> {
 
         // Signature, time, key trust, and package authorization are
         // checked before a command can be built or executed.
-        let verified = VerifiedAllowlist::new(doc, public_keys, now)?;
+        let verified = VerifiedAllowlist::new(doc, trusted, now, stored)?;
 
         if !verified.contains(package) {
             return Err(PackageBackendError::PackageNotAllowed);
@@ -294,16 +300,17 @@ impl<R: CommandRunner> PackageBackend for FlatpakBackend<R> {
     fn install(
         &mut self,
         package: &str,
-        doc: &AllowlistDoc,
-        public_keys: &Keyring,
-        now: u64,
+        doc: &V2Allowlist,
+        trusted: &Keyring,
+        now: i64,
+        stored: Option<(u64, &str)>,
         mode: InstallMode,
     ) -> Result<InstallReport, PackageBackendError> {
         if !valid_flatpak_app_id(package) {
             return Err(PackageBackendError::InvalidFlatpakAppId);
         }
 
-        let verified = VerifiedAllowlist::new(doc, public_keys, now)?;
+        let verified = VerifiedAllowlist::new(doc, trusted, now, stored)?;
 
         if !verified.contains(package) {
             return Err(PackageBackendError::PackageNotAllowed);

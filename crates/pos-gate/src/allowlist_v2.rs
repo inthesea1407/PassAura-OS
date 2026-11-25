@@ -1,11 +1,10 @@
-//! Canonical allowlist format v2 (rotation format) with v1 migration.
+//! Canonical allowlist format v2 (rotation format). The only runtime format.
 //!
-//! v1 is the single-key format in `allowlist.rs`. v2 adds a signed keyring
-//! with per-key validity windows, a monotonic sequence for downgrade
-//! rejection, and a `signed_by` field binding the signature to a ring member.
-//!
-//! This module does not modify `allowlist.rs`. It parses v1 for migration
-//! only; new documents must be v2.
+//! v2 has a signed keyring with per-key validity windows, a monotonic
+//! sequence for downgrade rejection, and a `signed_by` field binding the
+//! signature to a ring member. Older formats are never accepted at runtime;
+//! the text-v1 format can only be converted offline by `crate::migrate`.
+//! See docs/ALLOWLIST_FORMAT.md.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +19,9 @@ use std::fmt;
 pub enum V2Error {
     Json(String),
     UnsupportedVersion(u64),
+    /// Version 1 is accepted only by the offline migration tool.
+    LegacyVersionMigrationOnly(u64),
+    SignerNotTrusted(String),
     BadFormat(String),
     SignatureInvalid,
     SignedByUnknown(String),
@@ -42,6 +44,8 @@ impl fmt::Display for V2Error {
         match self {
             V2Error::Json(m) => write!(f, "v2 json error: {m}"),
             V2Error::UnsupportedVersion(v) => write!(f, "unsupported allowlist version {v}"),
+            V2Error::LegacyVersionMigrationOnly(v) => write!(f, "allowlist version {v} is accepted only by the offline migration tool"),
+            V2Error::SignerNotTrusted(k) => write!(f, "signer {k} is not in the trusted keyring"),
             V2Error::BadFormat(m) => write!(f, "bad allowlist format: {m}"),
             V2Error::SignatureInvalid => write!(f, "signature invalid"),
             V2Error::DuplicateKeyId(k) => write!(f, "duplicate key_id {k} in keyring"),
@@ -123,35 +127,15 @@ pub struct V2Allowlist {
 }
 
 // ---------------------------------------------------------------------------
-// v1 types (legacy, parse only)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct V1Allowlist {
-    pub version: u64,
-    pub issued_at: i64,
-    pub expires_at: i64,
-    pub key_id: String,
-    pub entries: Vec<V1Entry>,
-    pub signature: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct V1Entry {
-    pub name: String,
-    #[serde(default)]
-    pub version: Option<String>,
-    pub sha256: String,
-}
-
-// ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
-/// Parses either v1 or v2 by sniffing `version`. Returns the v2 document,
-/// converting v1 in memory. v1 signatures are **not** trusted or re-used;
-/// the converted document has an empty `signature_hex` and must be re-signed.
-pub fn parse_any(bytes: &[u8]) -> Result<V2Allowlist, V2Error> {
+/// Parses a RUNTIME allowlist. Only version 2 is accepted.
+///
+/// Version 1 documents are migration-only (see `crate::migrate`): they are
+/// rejected here with `LegacyVersionMigrationOnly`. Any other version is
+/// `UnsupportedVersion`. A missing or duplicated `version` key is an error.
+pub fn parse_v2(bytes: &[u8]) -> Result<V2Allowlist, V2Error> {
     // A struct probe (not a Value) so a duplicate `version` key is an error
     // instead of silently keeping the last one.
     #[derive(Deserialize)]
@@ -166,64 +150,37 @@ pub fn parse_any(bytes: &[u8]) -> Result<V2Allowlist, V2Error> {
 
     match version {
         2 => serde_json::from_slice(bytes).map_err(|e| V2Error::Json(e.to_string())),
-        1 => {
-            let v1: V1Allowlist =
-                serde_json::from_slice(bytes).map_err(|e| V2Error::Json(e.to_string()))?;
-            // v1 has no public key in the document. The caller must supply it.
-            // For parse-only, we leave public_key_hex empty and the verifier
-            // rejects it unless the caller fills it via `attach_v1_pubkey`.
-            Ok(convert_v1_to_v2(&v1, ""))
-        }
+        1 => Err(V2Error::LegacyVersionMigrationOnly(1)),
         other => Err(V2Error::UnsupportedVersion(other)),
     }
 }
 
-/// Converts v1 to v2. `public_key_hex` is the trusted public key for the v1
-/// `key_id`; the caller supplies it from the keyring they already trust.
-/// If empty, the result has an empty `public_key_hex` and will fail
-/// verification until the caller fills it.
-pub fn convert_v1_to_v2(v1: &V1Allowlist, public_key_hex: &str) -> V2Allowlist {
-    V2Allowlist {
-        format: "passaura-allowlist".into(),
-        version: 2,
-        sequence: 0, // v1 has no sequence; 0 is the floor.
-        issued_at: v1.issued_at,
-        expires_at: v1.expires_at,
-        signed_by: v1.key_id.clone(),
-        keyring: V2Keyring {
-            keys: vec![V2Key {
-                key_id: v1.key_id.clone(),
-                public_key_hex: public_key_hex.to_string(),
-                valid_from: 0,
-                valid_until: v1.expires_at,
-                retired: false,
-            }],
-        },
-        entries: v1
-            .entries
-            .iter()
-            .map(|e| V2Entry {
-                name: e.name.clone(),
-                version: e.version.clone(),
-                sha256: e.sha256.clone(),
-            })
-            .collect(),
-        // v1 signature is over different canonical bytes; do not carry it.
-        signature_hex: String::new(),
+/// Verifies a v2 document against a TRUSTED keyring supplied by the caller.
+///
+/// The document carries its own keyring, so the signer must also appear
+/// (same key_id and public key) in `trusted`; otherwise anyone could sign a
+/// document with a keyring of their own. Then runs `verify_v2`, which checks
+/// the signature over the canonical bytes before key validity and sequence.
+pub fn verify_v2_trusted(
+    doc: &V2Allowlist,
+    trusted: &crate::allowlist::Keyring,
+    now: i64,
+    stored: Option<(u64, &str)>,
+) -> Result<(), V2Error> {
+    let signer = doc
+        .keyring
+        .keys
+        .iter()
+        .find(|k| k.key_id == doc.signed_by)
+        .ok_or_else(|| V2Error::SignedByUnknown(doc.signed_by.clone()))?;
+    if !trusted
+        .keys
+        .iter()
+        .any(|t| t.key_id == signer.key_id && t.public_key_hex == signer.public_key_hex)
+    {
+        return Err(V2Error::SignerNotTrusted(signer.key_id.clone()));
     }
-}
-
-/// Fills in the v1 public key after `parse_any` for a v1 document.
-pub fn attach_v1_pubkey(doc: &mut V2Allowlist, public_key_hex: &str) -> Result<(), V2Error> {
-    if doc.version != 2 || doc.keyring.keys.len() != 1 {
-        return Err(V2Error::BadFormat("not a converted v1 document".into()));
-    }
-    let k = &mut doc.keyring.keys[0];
-    if !public_key_hex.is_empty() && !is_hex64(public_key_hex) {
-        return Err(V2Error::BadFormat("public_key_hex must be 64 hex".into()));
-    }
-    k.public_key_hex = public_key_hex.to_string();
-    Ok(())
+    verify_v2(doc, now, stored)
 }
 
 // ---------------------------------------------------------------------------
@@ -331,8 +288,7 @@ pub fn verify_v2(
     } else if !signer.public_key_hex.is_empty() {
         return Err(V2Error::BadFormat("public_key_hex must be 64 hex".into()));
     } else {
-        // Empty pubkey: only allowed for a freshly converted v1 doc before
-        // attach_v1_pubkey. Treat as unverifiable.
+        // Empty pubkey: unverifiable.
         return Err(V2Error::BadFormat("public_key_hex missing".into()));
     }
 
@@ -512,51 +468,99 @@ mod tests {
     }
 
     #[test]
-    fn v1_converts_and_attaches_pubkey() {
-        let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
-        let pk_hex = hex::encode(sk.verifying_key().to_bytes());
-        let key_id = derive_key_id(&pk_hex);
-        let v1 = V1Allowlist {
-            version: 1,
-            issued_at: 1_700_000_000,
-            expires_at: 1_700_086_400,
-            key_id: key_id.clone(),
-            entries: vec![V1Entry {
-                name: "ripgrep".into(),
-                version: Some("14.1.0".into()),
-                sha256: "a".repeat(64),
-            }],
-            signature: "00".repeat(64),
-        };
-        let mut v2 = convert_v1_to_v2(&v1, "");
-        attach_v1_pubkey(&mut v2, &pk_hex).unwrap();
-        assert_eq!(v2.version, 2);
-        assert_eq!(v2.sequence, 0);
-        assert_eq!(v2.keyring.keys.len(), 1);
-        assert_eq!(v2.keyring.keys[0].public_key_hex, pk_hex);
-        assert!(v2.signature_hex.is_empty());
-    }
-
-    #[test]
-    fn parse_any_dispatches_v1_and_v2() {
+    fn parse_v2_accepts_v2_only() {
         let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
         let mut doc = sample_v2(&sk, 1, 1_700_000_000);
         sign_doc(&mut doc, &sk);
         let v2_bytes = serde_json::to_vec(&doc).unwrap();
-        assert_eq!(parse_any(&v2_bytes).unwrap().version, 2);
-
-        let v1_bytes = br#"{"version":1,"issued_at":1700000000,"expires_at":1700086400,"key_id":"ed25519:aaaaaaaaaaaaaaaa","entries":[],"signature":"00"}"#;
-        let parsed = parse_any(v1_bytes).unwrap();
-        assert_eq!(parsed.version, 2);
-        assert_eq!(parsed.sequence, 0);
+        assert_eq!(parse_v2(&v2_bytes).unwrap().version, 2);
     }
 
     #[test]
-    fn parse_any_rejects_unknown_version() {
-        let bytes = br#"{"version":3}"#;
+    fn parse_v2_rejects_v1_at_runtime() {
+        let v1_bytes = br#"{"version":1,"issued_at":1700000000,"expires_at":1700086400,"key_id":"ed25519:aaaaaaaaaaaaaaaa","entries":[],"signature":"00"}"#;
+        assert_eq!(
+            parse_v2(v1_bytes).unwrap_err(),
+            V2Error::LegacyVersionMigrationOnly(1)
+        );
+        // text-v1 shape has no `version` key at all.
+        let text_v1 = br#"{"signed_by":"k","signature_hex":"","issued_at":1,"expires_at":2,"packages":[]}"#;
+        assert!(matches!(parse_v2(text_v1).unwrap_err(), V2Error::BadFormat(_)));
+    }
+
+    #[test]
+    fn parse_v2_rejects_unknown_versions() {
+        for bytes in [&br#"{"version":3}"#[..], &br#"{"version":0}"#[..], &br#"{"version":99}"#[..]] {
+            assert!(matches!(
+                parse_v2(bytes).unwrap_err(),
+                V2Error::UnsupportedVersion(_)
+            ));
+        }
+        assert!(parse_v2(br#"{"version":"2"}"#).is_err());
+        assert!(parse_v2(br#"{"version":null}"#).is_err());
+    }
+
+    #[test]
+    fn v2_payload_relabelled_as_v1_is_rejected() {
+        // Type confusion: take a valid signed v2 document and change only its
+        // version to 1. It must not be accepted at runtime.
+        let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
+        let mut doc = sample_v2(&sk, 1, 1_700_000_000);
+        sign_doc(&mut doc, &sk);
+        let mut v: serde_json::Value = serde_json::to_value(&doc).unwrap();
+        v["version"] = serde_json::json!(1);
+        let bytes = serde_json::to_vec(&v).unwrap();
+        assert_eq!(parse_v2(&bytes).unwrap_err(), V2Error::LegacyVersionMigrationOnly(1));
+        // Same bytes as a typed v2 document fail verification too.
+        let mut relabelled = doc.clone();
+        relabelled.version = 1;
+        assert!(verify_v2(&relabelled, 1_700_000_100, None).is_err());
+    }
+
+    #[test]
+    fn unsigned_sequence_zero_document_fails_verification() {
+        let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
+        let mut doc = sample_v2(&sk, 0, 1_700_000_000);
+        doc.signature_hex = String::new();
+        assert_eq!(
+            verify_v2(&doc, 1_700_000_100, None).unwrap_err(),
+            V2Error::SignatureInvalid
+        );
+        // Once signed, sequence 0 itself is acceptable on a fresh state.
+        sign_doc(&mut doc, &sk);
+        assert!(verify_v2(&doc, 1_700_000_100, None).is_ok());
+    }
+
+    #[test]
+    fn verify_v2_trusted_requires_signer_in_trusted_ring() {
+        let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
+        let other = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
+        let mut doc = sample_v2(&sk, 1, 1_700_000_000);
+        sign_doc(&mut doc, &sk);
+        let pk = hex::encode(sk.verifying_key().to_bytes());
+        let good = crate::allowlist::Keyring {
+            keys: vec![crate::allowlist::KeyEntry { key_id: derive_key_id(&pk), public_key_hex: pk.clone() }],
+        };
+        assert!(verify_v2_trusted(&doc, &good, 1_700_000_100, None).is_ok());
+        let opk = hex::encode(other.verifying_key().to_bytes());
+        let bad = crate::allowlist::Keyring {
+            keys: vec![crate::allowlist::KeyEntry { key_id: derive_key_id(&opk), public_key_hex: opk }],
+        };
         assert!(matches!(
-            parse_any(bytes).unwrap_err(),
-            V2Error::UnsupportedVersion(3)
+            verify_v2_trusted(&doc, &bad, 1_700_000_100, None).unwrap_err(),
+            V2Error::SignerNotTrusted(_)
+        ));
+    }
+
+    #[test]
+    fn downgrade_rejected_after_valid_signature() {
+        let sk = SigningKey::from_bytes(&[SEED.fetch_add(1, Ordering::SeqCst); 32]);
+        let mut doc = sample_v2(&sk, 2, 1_700_000_000);
+        sign_doc(&mut doc, &sk);
+        let digest = canonical_digest_hex(&doc).unwrap();
+        assert!(matches!(
+            verify_v2(&doc, 1_700_000_100, Some((3, &digest))).unwrap_err(),
+            V2Error::DowngradeRejected { stored: 3, candidate: 2 }
         ));
     }
 

@@ -8,7 +8,7 @@ The Linux backend provides a package-install policy gate for APT and Flatpak.
 The policy gate:
 
 1. Validates package identifiers.
-2. Verifies the signed allowlist using `pos-gate` verification.
+2. Verifies the signed v2 allowlist (`verify_v2_trusted`) against a trusted keyring and optional stored sequence/digest.
 3. Rejects unsigned, expired, future-issued, untrusted, or invalid documents.
 4. Rejects packages that do not match an allowlist entry.
 5. Constructs commands as program + argv.
@@ -58,15 +58,16 @@ Application IDs require multiple dot-separated segments and conservative segment
 
 ## Authorization
 
-The backend uses `verify_allowlist()` before authorization.
+The backend uses `allowlist_v2::verify_v2_trusted()` before authorization. Only v2 documents (`V2Allowlist`) reach it; text-v1 and other formats are rejected. See `docs/ALLOWLIST_FORMAT.md`.
 
 An install is allowed only if:
 
 - The signature is valid.
-- The signing key is trusted and not retired.
+- The signing key is in the trusted keyring, valid at `issued_at`, and not retired.
+- The sequence is not lower than the stored one (and an equal sequence has the same digest), when stored state is supplied.
 - The document has not expired.
 - The document is not future-issued.
-- The package name exactly matches an allowlist entry.
+- The package name exactly matches an allowlist entry `name`.
 
 No runner call occurs when verification or authorization fails.
 
@@ -154,30 +155,9 @@ Tests use a fake runner and do not invoke apt, dpkg, or flatpak.
 
 ## Integration requirements
 
-The crate must export the modules required by the integration tests,
-for example:
+`PackageBackend::install` takes `(package, &V2Allowlist, &Keyring /* trusted */, now: i64,
+stored: Option<(u64, &str)>, InstallMode)`. The caller owns the stored sequence/digest;
+the backend does not read or write rollback state. The crate exports `allowlist_v2`,
+`migrate`, `linux_backend` and `rollback`. The old `allowlist_signing` module was removed.
 
-```rust
-pub mod allowlist_signing;
-pub mod linux_backend;
-```
-
-The signing module must expose the API expected by the backend:
-
-- `verify_allowlist`
-- `AllowlistDocument`
-- `AllowlistError`
-- `TrustedPublicKey`
-
-The exact exports must be checked against the current crate source
-before integration.
-
-API and dependency assumptions
-
-This implementation assumes the existing crate has:
-
-allowlist_signing exported as a public module.
-
-The exact Task 4 types and verify_allowlist() signature.
-
-pos-gate as the library crate name (pos_gate in Rust imports).
+`pos-gate` is the library crate name (`pos_gate` in Rust imports).

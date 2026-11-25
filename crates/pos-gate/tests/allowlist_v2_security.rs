@@ -1,5 +1,5 @@
 use pos_gate::allowlist_v2::{
-    parse_any, verify_v2, V2Allowlist, V2Entry, V2Key, V2Keyring,
+    parse_v2, verify_v2, V2Allowlist, V2Entry, V2Key, V2Keyring,
     V2Error, canonical_payload_bytes, derive_key_id,
 };
 use ed25519_dalek::{Signer, SigningKey};
@@ -55,7 +55,7 @@ fn duplicate_json_keys_must_be_rejected() {
     }"#;
 
     assert!(
-        parse_any(bytes).is_err(),
+        parse_v2(bytes).is_err(),
         "duplicate JSON keys must not be silently accepted"
     );
 }

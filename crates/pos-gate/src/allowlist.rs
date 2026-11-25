@@ -1,11 +1,16 @@
-//! Signed package allowlist (Ed25519). Used by pos-cli.
+//! LEGACY text-v1 allowlist (Ed25519). MIGRATION INPUT ONLY.
+//!
+//! Not accepted at runtime: the gate, Linux backend and CLI take v2 only
+//! (see `allowlist_v2`). This module stays so `crate::migrate` can verify an
+//! old document, under its original rules, before converting it offline.
+//! `Keyring` (the trusted-key file format) is still used by every path.
 //!
 //! The signed message is domain-separated and canonical:
 //! `passaura-allowlist-v1\n<signed_by>\n<issued_at>\n<expires_at>\n` followed by
 //! one `name@version\n` line per package, sorted. Fail-closed: unknown key,
 //! bad hex, bad signature, not-yet-valid or expired all return an error.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -99,7 +104,7 @@ pub fn verify_allowlist(kr: &Keyring, doc: &AllowlistDoc, now: u64) -> Result<()
         .map_err(|_| GateError::BadSignature)?
         .try_into()
         .map_err(|_| GateError::BadSignature)?;
-    vk.verify(&doc.message(), &Signature::from_bytes(&sig))
+    vk.verify_strict(&doc.message(), &Signature::from_bytes(&sig))
         .map_err(|_| GateError::BadSignature)?;
     if now < doc.issued_at {
         return Err(GateError::NotYetValid);

@@ -6,11 +6,11 @@
 
 pub mod allowlist;
 pub mod allowlist_v2;
+pub mod migrate;
 pub mod names;
-pub mod allowlist_signing;
 pub mod linux_backend;
 pub mod rollback;
-pub use allowlist::{is_allowed, verify_allowlist, AllowlistDoc, GateError, Keyring};
+pub use allowlist::{GateError, Keyring};
 
 use pos_core::blocking::{enforce, Capability, Operation, Verdict};
 

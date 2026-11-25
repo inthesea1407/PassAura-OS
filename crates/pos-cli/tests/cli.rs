@@ -20,14 +20,26 @@ fn write(dir: &TempDir, name: &str, contents: &str) -> std::path::PathBuf {
 }
 
 
-/// keygen + sign: returns (keyring path, signed allowlist path).
+/// keygen + sign: returns (keyring path, signed v2 allowlist path).
+/// `pkgs` is a JSON array of {name, version}; each becomes a v2 entry.
 fn signed(dir: &TempDir, issued: u64, expires: u64, pkgs: &str) -> (std::path::PathBuf, std::path::PathBuf) {
     let keys = dir.path().join("keys");
     bin().args(["keygen", "--out", keys.to_str().unwrap()]).assert().code(0);
     let kr: serde_json::Value = serde_json::from_str(&fs::read_to_string(keys.join("keyring.json")).unwrap()).unwrap();
     let kid = kr["keys"][0]["key_id"].as_str().unwrap().to_string();
-    let unsigned = write(dir, "unsigned.json", &format!(
-        r#"{{"signed_by":"{kid}","signature_hex":"","issued_at":{issued},"expires_at":{expires},"packages":{pkgs}}}"#));
+    let pk = kr["keys"][0]["public_key_hex"].as_str().unwrap().to_string();
+    let list: Vec<serde_json::Value> = serde_json::from_str(pkgs).unwrap();
+    let entries: Vec<serde_json::Value> = list
+        .iter()
+        .map(|e| serde_json::json!({"name": e["name"], "version": e["version"], "sha256": "a".repeat(64)}))
+        .collect();
+    let doc = serde_json::json!({
+        "format": "passaura-allowlist", "version": 2, "sequence": 1,
+        "issued_at": issued, "expires_at": expires, "signed_by": kid,
+        "keyring": {"keys": [{"key_id": kid, "public_key_hex": pk, "valid_from": 0, "valid_until": expires, "retired": false}]},
+        "entries": entries, "signature_hex": ""
+    });
+    let unsigned = write(dir, "unsigned.json", &doc.to_string());
     let out = dir.path().join("allowlist.json");
     bin().args(["sign", unsigned.to_str().unwrap(), "--private-key", keys.join("private-key.json").to_str().unwrap(), "--out", out.to_str().unwrap()]).assert().code(0);
     (keys.join("keyring.json"), out)
@@ -82,7 +94,7 @@ fn verify_fake_signature_is_exit_2() {
     let dir = TempDir::new().unwrap();
     let (keyring, _) = signed(&dir, 0, 9999999999, "[]");
     let kid = serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&keyring).unwrap()).unwrap()["keys"][0]["key_id"].as_str().unwrap().to_string();
-    let bad = write(&dir, "bad.json", &format!(r#"{{"signed_by":"{kid}","signature_hex":"00","issued_at":0,"expires_at":9999999999,"packages":[]}}"#));
+    let bad = write(&dir, "bad.json", &format!(r#"{{"format":"passaura-allowlist","version":2,"sequence":1,"issued_at":0,"expires_at":9999999999,"signed_by":"{kid}","keyring":{{"keys":[]}},"entries":[],"signature_hex":"00"}}"#));
     bin()
         .args(["verify", bad.to_str().unwrap(), "--keyring", keyring.to_str().unwrap()])
         .assert()
@@ -386,7 +398,7 @@ fn install_rejects_bad_package_identifiers_with_exit_4() {
 }
 
 #[test]
-fn v1_allowlist_checked_against_a_different_keyring_is_rejected() {
+fn allowlist_checked_against_a_different_keyring_is_rejected() {
     let dir = TempDir::new().unwrap();
     let (_kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
     let other = dir.path().join("other");
@@ -414,4 +426,167 @@ fn audit_tamper_really_changes_file_and_tail_prints_last_record() {
     assert_ne!(before, after, "tamper must change the file");
     fs::write(&f, after).unwrap();
     bin().args(["audit", "verify"]).arg(&f).assert().code(2);
+}
+
+// --- legacy text-v1: runtime rejection and offline migration ---------------
+
+const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+/// Writes a signed legacy text-v1 file using the library (the CLI cannot sign v1 any more).
+fn legacy_v1(dir: &TempDir, expires: u64) -> (std::path::PathBuf, std::path::PathBuf) {
+    use ed25519_dalek::SigningKey;
+    use pos_gate::allowlist::{AllowlistDoc, PackageEntry};
+    let sk = SigningKey::from_bytes(&[21u8; 32]);
+    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let kid = pos_gate::allowlist_v2::derive_key_id(&pk);
+    let mut d = AllowlistDoc {
+        signed_by: kid.clone(),
+        signature_hex: String::new(),
+        issued_at: 1,
+        expires_at: expires,
+        packages: vec![PackageEntry { name: "ripgrep".into(), version: "14".into() }],
+    };
+    d.sign(&sk);
+    let kr = format!(r#"{{"keys":[{{"key_id":"{kid}","public_key_hex":"{pk}"}}]}}"#);
+    (write(dir, "legacy.json", &serde_json::to_string(&d).unwrap()), write(dir, "legacy-kr.json", &kr))
+}
+
+#[test]
+fn legacy_v1_is_rejected_at_runtime_by_verify_and_install() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = legacy_v1(&dir, 4_000_000_000);
+    bin().args(["verify", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+    bin().args(["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", kr.to_str().unwrap(), "--dry-run"]).assert().code(2);
+}
+
+#[test]
+fn unknown_or_json_v1_versions_are_rejected_at_runtime() {
+    let dir = TempDir::new().unwrap();
+    let (_al, kr) = legacy_v1(&dir, 4_000_000_000);
+    for (i, body) in [r#"{"version":3}"#, r#"{"version":1,"issued_at":1,"expires_at":9,"key_id":"k","entries":[],"signature":"00"}"#].iter().enumerate() {
+        let f = write(&dir, &format!("odd{i}.json"), body);
+        bin().args(["verify", f.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+    }
+}
+
+#[test]
+fn migrate_produces_unsigned_v2_that_fails_until_signed() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = legacy_v1(&dir, 4_000_000_000);
+    let map = write(&dir, "map.json", &format!(r#"{{"ripgrep@14":"{HASH}"}}"#));
+    let out = dir.path().join("migrated.json");
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .assert().code(0).stdout(predicate::str::contains("UNSIGNED"));
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&out).unwrap()).unwrap();
+    assert_eq!(v["version"], 2);
+    assert_eq!(v["sequence"], 0);
+    assert_eq!(v["signature_hex"], "");
+    // Unsigned: verify must fail.
+    bin().args(["verify", out.to_str().unwrap(), "--keyring", kr.to_str().unwrap()]).assert().code(2);
+    // No overwrite.
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .assert().code(2).stderr(predicate::str::contains("already exists"));
+}
+
+#[test]
+fn migrate_fails_when_a_hash_is_missing_and_lists_it() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = legacy_v1(&dir, 4_000_000_000);
+    let map = write(&dir, "map.json", "{}");
+    let out = dir.path().join("migrated.json");
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", out.to_str().unwrap()])
+        .assert().code(2).stderr(predicate::str::contains("ripgrep@14"));
+    assert!(!out.exists(), "no partial output");
+}
+
+#[test]
+fn migrate_requires_sha256_map_flag_and_trusted_key() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = legacy_v1(&dir, 4_000_000_000);
+    let out = dir.path().join("m.json");
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--out", out.to_str().unwrap()]).assert().code(4);
+    // A keyring that does not hold the signer is rejected (the document's own data is never trusted).
+    let other = dir.path().join("other");
+    bin().args(["keygen", "--out", other.to_str().unwrap()]).assert().code(0);
+    let map = write(&dir, "map.json", &format!(r#"{{"ripgrep@14":"{HASH}"}}"#));
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", other.join("keyring.json").to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", out.to_str().unwrap()]).assert().code(2);
+    assert!(!out.exists());
+}
+
+#[test]
+fn sign_refuses_a_key_that_does_not_match_signed_by_and_does_not_overwrite() {
+    let dir = TempDir::new().unwrap();
+    let (kr, al) = signed(&dir, 1, 4_000_000_000, r#"[{"name":"ripgrep","version":"14"}]"#);
+    let _ = kr;
+    let other = dir.path().join("other");
+    bin().args(["keygen", "--out", other.to_str().unwrap()]).assert().code(0);
+    let out = dir.path().join("resigned.json");
+    bin().args(["sign", al.to_str().unwrap(), "--private-key", other.join("private-key.json").to_str().unwrap(), "--out", out.to_str().unwrap()]).assert().code(2);
+    assert!(!out.exists());
+    // Existing output is not overwritten.
+    let keys = dir.path().join("keys");
+    bin().args(["sign", al.to_str().unwrap(), "--private-key", keys.join("private-key.json").to_str().unwrap(), "--out", al.to_str().unwrap()]).assert().code(2);
+}
+
+#[test]
+fn migrate_refuses_installed_allowlist_locations_even_if_the_file_does_not_exist() {
+    let dir = TempDir::new().unwrap();
+    let (al, kr) = legacy_v1(&dir, 4_000_000_000);
+    let map = write(&dir, "map.json", &format!(r#"{{"ripgrep@14":"{HASH}"}}"#));
+    for out in [
+        "/etc/passaura/allowlist.json",
+        "/var/lib/passaura/allowlist.json",
+        "/usr/share/passaura/allowlist.json",
+        "/tmp/zz/../../etc/passaura/allowlist.json",
+    ] {
+        bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", out])
+            .assert().code(2).stderr(predicate::str::contains("protected"));
+        assert!(!std::path::Path::new(out).exists(), "{out} must not have been created");
+    }
+    // The input file itself is never a valid output.
+    bin().args(["allowlist-migrate", "--from-v1", al.to_str().unwrap(), "--trusted-key", kr.to_str().unwrap(), "--sha256-map", map.to_str().unwrap(), "--out", al.to_str().unwrap()])
+        .assert().code(2);
+}
+
+/// Self-signed v2 document whose own keyring vouches for itself.
+fn self_signed_v2(dir: &TempDir, seed: u8) -> std::path::PathBuf {
+    use ed25519_dalek::{Signer, SigningKey};
+    use pos_gate::allowlist_v2::*;
+    let sk = SigningKey::from_bytes(&[seed; 32]);
+    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let id = derive_key_id(&pk);
+    let mut d = V2Allowlist {
+        format: "passaura-allowlist".into(), version: 2, sequence: 1,
+        issued_at: 1, expires_at: 4_000_000_000, signed_by: id.clone(),
+        keyring: V2Keyring { keys: vec![V2Key { key_id: id, public_key_hex: pk, valid_from: 0, valid_until: 4_000_000_000, retired: false }] },
+        entries: vec![V2Entry { name: "ripgrep".into(), version: None, sha256: "a".repeat(64) }],
+        signature_hex: String::new(),
+    };
+    d.signature_hex = hex::encode(sk.sign(&canonical_payload_bytes(&d).unwrap()).to_bytes());
+    write(dir, "selfsigned.json", &serde_json::to_string(&d).unwrap())
+}
+
+#[test]
+fn a_documents_own_keyring_cannot_establish_trust_in_verify_or_install() {
+    let dir = TempDir::new().unwrap();
+    let al = self_signed_v2(&dir, 31);
+    // (a) trusted keyring is empty.
+    let empty = write(&dir, "empty.json", r#"{"keys":[]}"#);
+    for args in [
+        vec!["verify", al.to_str().unwrap(), "--keyring", empty.to_str().unwrap()],
+        vec!["install", "ripgrep", "--allowlist", al.to_str().unwrap(), "--keyring", empty.to_str().unwrap(), "--dry-run"],
+    ] {
+        bin().args(&args).assert().code(2).stderr(predicate::str::contains("not in the trusted keyring"));
+    }
+    // (b) trusted keyring has the same key_id but a different public key.
+    let doc: serde_json::Value = serde_json::from_str(&fs::read_to_string(&al).unwrap()).unwrap();
+    let kid = doc["signed_by"].as_str().unwrap();
+    let other_pk = "bb".repeat(32);
+    let spoof = write(&dir, "spoof.json", &format!(r#"{{"keys":[{{"key_id":"{kid}","public_key_hex":"{other_pk}"}}]}}"#));
+    bin().args(["verify", al.to_str().unwrap(), "--keyring", spoof.to_str().unwrap()]).assert().code(2);
+    // (c) a keyring that really holds the key accepts it, so the failures above are about trust, not the document.
+    let sk = ed25519_dalek::SigningKey::from_bytes(&[31u8; 32]);
+    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let good = write(&dir, "good.json", &format!(r#"{{"keys":[{{"key_id":"{kid}","public_key_hex":"{pk}"}}]}}"#));
+    bin().args(["verify", al.to_str().unwrap(), "--keyring", good.to_str().unwrap()]).assert().code(0);
 }

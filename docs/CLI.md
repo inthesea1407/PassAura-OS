@@ -1,208 +1,122 @@
-# pos-cli — PassAura OS command-line tool
+# pos-cli: PassAura OS command-line tool
 
-`pos-cli` verifies signed allowlists and gates package installs against them.
-It is part of the PassAura OS Rust workspace alongside `pos-gate` (signature
-verification) and `pos-core` (policy documents).
+`pos-cli` verifies signed allowlists and gates package installs against them. It is part of the
+PassAura OS Rust workspace next to `pos-gate` (allowlist verification) and `pos-core` (policy).
+Status: draft, tested in CI/emulation only; no hardware run and no external audit.
+
+## Allowlist format
+
+Only **allowlist v2** is accepted at runtime (`verify`, `install`, `sign`). text-v1, the two JSON
+"version 1" shapes and any other version are rejected with exit code 2. The one supported way
+out of text-v1 is the offline `allowlist-migrate` command below. Format details, signed bytes
+and limits: `docs/ALLOWLIST_FORMAT.md`.
 
 ## Install
 
 ```sh
 cargo build -p pos-cli --release
 # binary at target/release/pos-cli
-Exit codes
-Code	Meaning
-0	Success
-2	Verification failed (bad signature, expired, malformed JSON, missing file)
-3	Package not allowed by the allowlist
-4	Usage error (unknown subcommand, missing required argument)
+```
 
-Design note: malformed input (bad JSON, unreadable file) is treated as a
-verification failure (2), not a usage error (4). Exit 4 is reserved for
-command-line parsing errors so scripts can distinguish "you called me wrong"
-from "the data is bad".
+## Exit codes
 
-verify — verify an allowlist against a keyring
-sh
-Copy
-Download
-pos-cli verify allowlist.json --keyring keyring.json
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 2 | Verification or data failure (bad signature, expired, untrusted signer, unsupported or legacy version, malformed JSON, missing file, refused output path) |
+| 3 | Package not allowed by the allowlist (`install`), or audit file unreadable (`audit`) |
+| 4 | Usage error (unknown subcommand, missing required flag, `install` without `--state` when not a dry run) |
 
-Reads both files, deserializes via pos-gate::Keyring::from_json and
-AllowlistDoc::from_json, then calls
-pos_gate::verify_allowlist(&keyring, &allowlist, now).
+Malformed input is a verification failure (2), not a usage error (4), so scripts can tell
+"you called me wrong" from "the data is bad".
 
-now is the current Unix time in seconds. If the system clock is before
-1970, now is clamped to 0 (fail-closed: an allowlist with a future
-issued_at will be rejected).
+## verify
 
-On success: prints ok: allowlist verified, exits 0.
+```sh
+pos-cli verify allowlist.json --keyring keyring.json [--state state.json]
+```
 
-On any failure: prints the error to stderr, exits 2.
+Parses the file as v2, then verifies it against the **trusted** keyring: the signer must be in
+`--keyring` with the same `key_id` and the same public key. A v2 document carries its own keyring,
+which is never trusted by itself. After that: validity window, signing-key validity, Ed25519
+`verify_strict` over the canonical bytes, and only then the sequence check. With `--state`, a lower
+sequence, or an equal sequence with different content, is rejected. `now` is the current Unix time;
+a clock before 1970 is treated as 0 (fail closed).
 
-Example — expired allowlist:
+Success prints `ok: v2 allowlist verified (sequence N)` and exits 0. Any failure prints the error to
+stderr and exits 2.
 
-sh
-Copy
-Download
-$ pos-cli verify old-allowlist.json --keyring keyring.json
-verification failed: allowlist expired at 1700000000
-$ echo $?
-2
-install — check whether a package is allowed
-sh
-Copy
-Download
-pos-cli install ripgrep --allowlist allowlist.json --dry-run
+## install
 
-Reads the allowlist (no keyring needed: is_allowed operates on the
-already-verified document).
+```sh
+pos-cli install ripgrep --allowlist allowlist.json --keyring keyring.json --dry-run
+```
 
-Important: install does not re-verify the signature. A production
-installer must call verify first (or use the library's combined API). This
-CLI's install is a gate check, not an installer.
+Verifies the allowlist exactly like `verify`, then checks that the package name is an entry.
+Allowed: prints a dry-run line, exit 0. Not listed: `not allowed: <pkg> ...`, exit 3.
+Verification failure: exit 2. Invalid package identifier or a non-dry-run without `--state`: exit 4.
 
-If is_allowed(&doc, "ripgrep") is true: prints a dry-run line and exits 0.
+A real (non-dry-run) run records the accepted sequence in `--state` and prints
+`installer not wired in this build`. It installs nothing. The state file only records intent:
+deleting it resets the counter, there is no inter-process lock, and no installer is connected to
+it, so it is **not** real rollback protection.
 
-If not: prints not allowed: <pkg> to stderr and exits 3.
+## sign
 
---dry-run is required by the current build; the non-dry-run path prints an
-"installer not wired in this build" message. This keeps the CLI honest: it
-never claims to install something it did not.
+```sh
+pos-cli sign unsigned-v2.json --private-key private-key.json --out signed-v2.json
+```
 
-Example — allowed:
+Takes an unsigned v2 document, signs the canonical bytes and writes the result. The private key
+must match the `signed_by` key in the document, otherwise it fails (exit 2). `--out` must be a new
+file; an existing path is never overwritten.
 
-sh
-Copy
-Download
-$ pos-cli install ripgrep --allowlist allowlist.json --dry-run
-dry-run: would install ripgrep (allowed)
-$ echo $?
-0
+## allowlist-migrate
 
-Example — not allowed:
+```sh
+pos-cli allowlist-migrate --from-v1 old.json --trusted-key keyring.json \
+    --sha256-map hashes.json --out new-unsigned-v2.json
+```
 
-sh
-Copy
-Download
-$ pos-cli install curl --allowlist allowlist.json --dry-run
-not allowed: curl is not in the allowlist
-$ echo $?
-3
-keygen — generate an ed25519 keypair
-sh
-Copy
-Download
+Offline, one way, text-v1 only. The v1 signature is verified with the original v1 rules (signed
+bytes unchanged, `verify_strict`) against a key from `--trusted-key`; a key inside the document is
+never used. The operator supplies the sha256 of every entry in `--sha256-map`, a JSON object
+`{"name@version": "<64 lowercase hex>"}`. Only the format of each hash is checked, not whether it
+matches the real application file. A missing hash fails the migration (exit 2) and lists every
+missing `name@version`; no hash is invented. The output is an unsigned v2 (sequence 0) that fails
+`verify` until it is signed with `sign`. Review its times and key window first.
+
+`--out` must be a new file. It is refused (exit 2, nothing written) when it already exists, when it
+is one of the input files, or when it is under a PassAura system directory (`/etc/passaura`,
+`/var/lib/passaura`, `/usr/share/passaura`, `/usr/lib/passaura`, `/usr/local/share/passaura`,
+`/usr/local/lib/passaura`), even if the file or directory does not exist yet. A missing required
+flag exits 4.
+
+## keygen
+
+```sh
 pos-cli keygen --out ./keys
+```
 
-Writes two files into ./keys/:
+Writes `keyring.json` (public, safe to distribute: `{"keys":[{"key_id":"ed25519:<hex16>","public_key_hex":"<hex64>"}]}`)
+and `private-key.json` (secret; mode 0600 on Unix). It creates the directory if missing and refuses
+to overwrite existing key files. Do not commit `private-key.json`.
 
-keyring.json — public keyring, safe to distribute. Shape:
-{ "keys": [ { "key_id": "ed25519:<hex16>", "public_key_hex": "<hex64>" } ] }
+## audit
 
-private-key.json — secret. Shape:
-{ "key_id": "...", "private_key_hex": "...", "warning": "KEEP THIS FILE SECRET..." }
+`pos-cli audit verify FILE` checks the hash chain (exit 0 ok, 2 tampered or corrupt, 3 unreadable).
+`pos-cli audit tail FILE -n N` prints the last N records. Removal of the newest records is not
+detectable.
 
-On Unix, private-key.json is chmod'd 0600. The directory is created if
-missing.
+## Tests
 
-Do not commit private-key.json. Add it to .gitignore.
-
-API assumptions
-
-This CLI is written against the following pos-gate API. If the real crate
-differs, only crates/pos-cli/src/main.rs needs updating.
-
-rust
-Copy
-Download
-// Assumed in crates/pos-gate:
-pub struct Keyring;
-pub struct AllowlistDoc;
-pub enum GateError { /* Display implemented */ }
-
-impl Keyring       { pub fn from_json(bytes: &[u8]) -> Result<Self, GateError>; }
-impl AllowlistDoc  { pub fn from_json(bytes: &[u8]) -> Result<Self, GateError>; }
-
-pub fn verify_allowlist(kr: &Keyring, doc: &AllowlistDoc, now: u64) -> Result<(), GateError>;
-pub fn is_allowed(doc: &AllowlistDoc, pkg: &str) -> bool;
-
-Assumed JSON shapes:
-
-json
-Copy
-Download
-// keyring.json
-{ "keys": [ { "key_id": "ed25519:abc", "public_key_hex": "..." } ] }
-
-// allowlist.json
-{
-  "signed_by": "ed25519:abc",
-  "signature_hex": "...",
-  "issued_at": 1700000000,
-  "expires_at": 1800000000,
-  "packages": [ { "name": "ripgrep", "version": "14.1.0" } ]
-}
-Testing
-sh
-Copy
-Download
+```sh
 cargo test -p pos-cli
+```
 
-The integration tests in crates/pos-cli/tests/cli.rs use assert_cmd and
-tempfile. They cover:
-
-usage errors (exit 4): no args, unknown subcommand, missing required flags
-
-verify: happy path (exit 0), bad keyring JSON, bad allowlist JSON, missing
-keyring file, missing allowlist file, expired allowlist (all exit 2)
-
-install: allowed dry-run (0), not allowed (3), bad JSON (2), missing file (2)
-
-keygen: writes both files, creates missing directories (0)
-
-malformed input (empty files, binary garbage) does not panic
-
-Caveat: the tests assume pos-gate::from_json accepts the minimal JSON
-shapes above. If pos-gate requires additional fields (e.g. a version on
-each package), the test fixtures must be updated to match. The tests exercise
-the CLI's exit-code mapping, not pos-gate's cryptographic correctness.
-
-What was not run
-
-cargo test -p pos-cli — no Rust toolchain in the authoring environment.
-
-cargo clippy -p pos-cli -- -D warnings — same.
-
-End-to-end verify against a real signed allowlist — pos-gate was not
-available to link against, so the verify_ok test only asserts that the CLI
-reaches exit 0 when pos-gate returns Ok, using a zeroed signature that
-a real verifier would reject.
-
-text
-Copy
-Download
-
----
-
-**Continue prompt:** Not needed. This answer is ~18k characters. If you want the `Cargo.toml` moved into `crates/pos-cli/` as shown above (it is), and a workspace-level `Cargo.toml` snippet added, say "continue" and I will add only that file.
-
-## Integrator notes (read first)
-
-- `install` now also requires `--keyring <keyring.json>`. It verifies the allowlist signature before checking the package, so an unsigned or edited allowlist exits 2.
-- New `sign <allowlist.json> --private-key <private-key.json> --out <file>` signs an allowlist.
-- Signed message: `passaura-allowlist-v1\n<signed_by>\n<issued_at>\n<expires_at>\n` then sorted `name@version\n` lines. Implemented in `crates/pos-gate/src/allowlist.rs`.
-- `--help` exits 0. The `installer not wired` message is accurate: `install` only checks and prints, it does not install anything yet.
-
-## v2 allowlists and audit logs
-
-- `verify` and `install` accept a v2 allowlist (`"version": 2`, see `allowlist_v2.rs`). The
-  signer must be in the trusted `--keyring` file with the same key_id and public key, because a
-  v2 document carries its own keyring and would otherwise vouch for itself.
-- `--state FILE` (optional) turns on the rollback check: an older sequence, or the same sequence
-  with different content, is rejected (exit 2). `install` records the new sequence after a real
-  (non-dry-run) install. Limit: the installer itself is still not wired, so this records intent.
-- `audit verify FILE` checks the hash chain (exit 0 ok, 2 tampered or corrupt, 3 unreadable).
-  `audit tail FILE -n N` prints the last N records. Removal of the newest records is not detectable.
-- Tested in `crates/pos-cli/tests/cli.rs`; vectors in `docs/CONFORMANCE.md`.
-- `keygen` refuses to overwrite existing key files and creates the private key with mode 0600 on Unix.
-- A real (non-dry-run) install from a v2 allowlist needs `--state`; without it the command exits 4.
+`crates/pos-cli/tests/cli.rs` (assert_cmd + tempfile) covers usage errors, verify and install
+(valid, tampered, expired, wrong keyring, v2 rollback state, legacy and unknown versions rejected),
+trust (a document's own keyring cannot vouch for itself, including a same-`key_id` different-key
+keyring), `sign` (key mismatch, no overwrite), `allowlist-migrate` (success, unsigned result fails
+`verify`, missing hashes, wrong key, protected and existing output paths), keygen, audit, and
+no-panic on garbage input. Vectors: `docs/CONFORMANCE.md`.
