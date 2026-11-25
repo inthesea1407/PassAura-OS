@@ -47,3 +47,16 @@ feed() { printf '%s\n' "$@" | sh "$HOOK"; }
   MOCK_PKG=badpkg run feed "badpkg - 1.0 < 1.0 = $D/ok.deb"
   [ "$status" -ne 0 ]
 }
+
+@test "path with spaces is read whole and checked" {
+  mkdir -p "$D/my dir"; touch "$D/my dir/a b.deb"
+  run feed "harmless - 1.0 < 1.0 = $D/my dir/a b.deb"
+  [ "$status" -eq 0 ]
+  MOCK_PKG=badpkg run feed "badpkg - 1.0 < 1.0 = $D/my dir/a b.deb"
+  [ "$status" -ne 0 ]
+}
+
+@test "ambiguous line with text after the .deb fails closed" {
+  run feed "harmless - 1.0 < 1.0 = $D/ok.deb $D/other.deb extra"
+  [ "$status" -ne 0 ]
+}

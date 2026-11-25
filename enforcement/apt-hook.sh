@@ -11,9 +11,14 @@ set -u
 rc=0
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 while read -r line; do
-  deb=$(printf '%s\n' "$line" | grep -o '/[^ ]*\.deb' | head -1)
-  # Lines without a .deb path (protocol header, config lines, removals) are not installs.
-  [ -n "$deb" ] || continue
+  # The path is everything from the first "/" to the end of the line, so a
+  # path with spaces is read whole. A line that mentions ".deb" but does not
+  # end with it is ambiguous (for example two paths on one line): block it.
+  case "$line" in
+    *.deb) deb="/${line#*/}" ;;
+    *.deb*) echo "pos-gate: cannot parse install line, blocking" >&2; rc=1; continue ;;
+    *) continue ;;  # protocol header, config lines, removals: not installs
+  esac
   # A .deb that is named but cannot be read must not be waved through: fail closed.
   if [ ! -f "$deb" ]; then
     echo "pos-gate: cannot read $deb, blocking" >&2
