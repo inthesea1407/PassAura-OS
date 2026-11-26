@@ -30,7 +30,7 @@ Honest status: a tested policy core, a package gate, a signed-package format, a 
 - M6: external review (when budget allows); only then claim a security level.
 
 ## Status as of 2026-11-25
-Merged and CI-green: pos-crypto-suites, pos-vault-store, pos-update, pos-install, pos-netpolicy. All of it is tested in CI only: nothing has run on real hardware, nothing is audited, releases are unsigned (no release key yet), and payments stay off behind an unset flag.
+Merged and CI-green: pos-crypto-suites, pos-vault-store, pos-update, pos-install, pos-update-install (update-to-install handoff, see UPDATE_INSTALL_HANDOFF.md), pos-netpolicy. All of it is tested in CI only: nothing has run on real hardware, nothing is audited, releases are unsigned (no release key yet), and payments stay off behind an unset flag.
 
 ## Known limits
 - Open source, so forks can remove the block; only official signed builds enforce.

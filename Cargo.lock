@@ -1209,6 +1209,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pos-update-install"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "hex",
+ "pos-gate",
+ "pos-install",
+ "pos-update",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pos-vault-store"
 version = "0.1.0"
 dependencies = [
