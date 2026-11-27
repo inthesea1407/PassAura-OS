@@ -1,4 +1,4 @@
-# Update client design (`pos-cli update`, not built yet)
+# Update client design (`pos-cli update`)
 
 Status: implemented as `pos-cli update` (see CLI.md). Everything it
 wires together is CI-tested only and unaudited; the real dpkg backend has
@@ -24,16 +24,17 @@ new channel state. Every piece already exists; this note is the wiring plan.
   paired signed `X.allowlist.json` authorizes it, through the unchanged
   pos-install pipeline (see UPDATE_INSTALL_HANDOFF.md).
 
-## Command shape (draft)
+## Command shape (as implemented; see CLI.md for the full reference)
 
 ```
 pos-cli update --channel stable \
-  --transport dir:/srv/pos-updates \        # local dir first; HTTPS later
+  (--transport-dir /srv/pos-updates | --transport-url https://HOST[/PATH]) \
   --update-keys update-keys.json \          # threshold key set for manifests
   --threshold 2 \
-  --install-keys install-keys.json \        # keyring for allowlists
-  --install-state /var/lib/pos/install-state.json \
-  --audit /var/log/pos/audit.jsonl
+  --keyring install-keys.json \             # keyring for allowlists
+  --state /var/lib/pos/install-state.json \
+  --audit-log /var/log/pos/audit.jsonl \
+  --update-state-dir /var/lib/pos/update-state/ [--dry-run]
 ```
 
 Two distinct key sets on purpose: the update keys authorize what may be
@@ -43,13 +44,14 @@ keyring did not sign for (UPDATE_INSTALL_HANDOFF.md).
 
 ## Decisions still open
 
-- Transport: the local-directory transport is what exists (fits the offline
-  posture; netpolicy allow-lists are unverified on real traffic, so HTTPS
-  fetch is a later step and needs its own review: TLS roots, timeouts, size
-  caps, and the netpolicy rules that permit it).
-- Backend: the Linux build wires the real apt/dpkg backend; until it has run
-  on hardware, builds keep a dry-run default and the command prints what it
-  would install.
+- Transport: decided. Both exist: the local-directory transport and the HTTPS
+  transport (rustls with bundled webpki roots, no redirects/proxies/retries,
+  size caps, timeouts; docs/UPDATE_TRANSPORT_HTTPS.md, CI-tested against
+  loopback only). The netpolicy rules that would permit real traffic remain
+  unverified on a real kernel.
+- Backend: the Linux build wires the real apt/dpkg backend and a real run
+  executes `dpkg` through the pipeline. It has never run on hardware;
+  `--dry-run` is how an operator verifies and stages without installing.
 - Operator recovery: when the install pipeline blocks indeterminate, the
   command reports the attempt and points at the existing
   `pos-cli install --recover retry|abandon` path; it never auto-retries.
