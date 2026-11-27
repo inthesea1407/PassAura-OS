@@ -1,7 +1,9 @@
-# HTTPS update transport - design review
+# HTTPS update transport - design review and build record
 
-Status: design review, written before any code. Nothing here is built yet.
-Conclusion: **the design holds**; build notes are at the bottom.
+Status: **shipped** in `pos-cli update` (commit 1b09267, ureq 3.5.2,
+`--transport-url`). This file was the design review; it is kept as the design
+record, with the shipped deltas noted where the build differs from the
+original text.
 
 ## What HTTPS is for here (and what it is not)
 
@@ -34,11 +36,14 @@ merged; this review confirms that call.)
 - **Redirects: rejected.** A manifest URL that redirects is an error, not a
   hint. One URL, one authority, no surprises in logs.
 - **Size caps before reading.** The envelope is capped at the verifier's own
-  1 MiB limit (the transport refuses `Content-Length` above it and aborts a
-  body that grows past it). Each artifact is capped at its manifest-declared
-  `size`: the transport requires an exact `Content-Length` equal to `size`
-  and reads at most `size` bytes. The flow's `max_total_bytes` cap is checked
-  by the flow before any artifact fetch, unchanged.
+  1 MiB limit; each artifact is capped at its manifest-declared `size`. The
+  flow's `max_total_bytes` cap is checked by the flow before any artifact
+  fetch, unchanged.
+  - Shipped form: instead of inspecting `Content-Length` headers, the
+    transport reads the body with a hard byte limit (`max_bytes`) and then
+    requires the delivered length to equal the manifest `size` exactly. A
+    body that grows past the limit aborts; a short or long body fails the
+    exact-length check. Same guarantee, no header trust.
 - **Timeouts: connect 10 s, per-read 30 s, total per request 120 s.**
   A hung server must not hang the CLI.
 - **Retries: none in v1.** The operator or a timer re-runs the whole command;
@@ -58,13 +63,13 @@ merged; this review confirms that call.)
 
 ## Dependency choice
 
-`ureq` 3.x (synchronous, matches the sync CLI; rustls-tls feature;
-webpki-roots). Synchronous code keeps pos-cli free of an async runtime.
-Licenses (MIT/Apache-2.0/ISC across the tree) pass the existing
-`cargo deny check licenses`. MSRV must be verified against the workspace's
-1.89 CI job before merge; if ureq 3.x needs newer Rust, the fallback is
-`ureq` 2.x (also rustls) or `minreq`, in that order, and this document is
-updated with what actually shipped.
+Shipped: `ureq` 3.5.2 (synchronous, matches the sync CLI; rustls with the
+bundled webpki-roots store, never the OS store). Synchronous code keeps
+pos-cli free of an async runtime. Licenses (MIT/Apache-2.0/ISC across the
+tree) pass the existing `cargo deny check licenses`. MSRV: verified - the
+workspace's 1.89 `msrv` CI job runs `cargo check --workspace --all-targets
+--locked` over the lockfile that pins ureq 3.5.2, and it is green, so no
+fallback to ureq 2.x or minreq was needed.
 
 ## Testing plan
 
@@ -77,14 +82,21 @@ updated with what actually shipped.
 - TLS itself is not re-tested locally (rustls/webpki have their own suites);
   what we test is our cap, redirect, timeout and error-mapping logic.
 
-## Build notes (if this holds - it does)
+## What shipped
 
-1. Add `ureq` (rustls-tls, no default features beyond tls) to pos-cli.
-2. `UrlTransport { base_url, http: &dyn HttpGet }` in pos-cli next to
-   `DirTransport`; `--transport-url URL` as an alternative to
-   `--transport-dir DIR` (exactly one required). Envelope at
-   `URL/<channel>.json`, artifacts at `URL/<name>` - same layout as the dir
-   transport.
-3. `--transport-url` rejects `http://`, userinfo and query/fragment at parse.
-4. CLI.md + this document updated with what shipped; ROADMAP moves the HTTPS
-   transport out of future work.
+1. `ureq` 3.5.2 (rustls, no default features beyond TLS) added to pos-cli.
+2. `UrlTransport { base, http: Box<dyn HttpGet> }` lives in pos-cli next to
+   `DirTransport`; `--transport-url URL` is an alternative to
+   `--transport-dir DIR` (exactly one required, enforced by
+   `build_transport`). Envelope at `URL/<channel>.json`, artifacts at
+   `URL/<name>` - same layout as the dir transport.
+3. `--transport-url` rejects `http://`, userinfo and query/fragment at parse
+   (`validate_transport_url`); redirects and non-2xx statuses fail in
+   `UreqGet` (max_redirects(0) plus an explicit status check).
+4. Timeouts shipped as designed: connect 10 s, body-receive 30 s, global
+   120 s per request. No retries, no proxy support, HTTP/1.1 only.
+5. Tests shipped as planned: fake-`HttpGet` unit tests plus a test-only
+   plain-HTTP `127.0.0.1` server exercising `UreqGet` end to end (body read,
+   redirect rejected). The production path never accepts `http://`.
+6. CLI.md documents `--transport-url`, ROADMAP lists the HTTPS transport as
+   merged, and this document now records the shipped state.
