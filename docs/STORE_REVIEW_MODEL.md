@@ -125,7 +125,8 @@ What that means in the model:
 ## 5b. Store policy: no ads, ever (owner decision, 2026-11-27)
 
 Owner's rule (WhatsApp 16:30 EET, relayed by main): any app containing ads is
-removed immediately. Unlike a duplicate (section 5a), this is not a
+removed immediately, with no quality exception — an excellent app with ads is
+still removed ("حتى لو جامد"). Unlike a duplicate (section 5a), this is not a
 competition and has no warning period: discovery at any point means the
 revocation path (section 8) runs at once, and a new submission of the same
 app is rejected on sight.
