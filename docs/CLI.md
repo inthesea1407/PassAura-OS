@@ -56,10 +56,12 @@ Verifies the allowlist exactly like `verify`, then checks that the package name 
 Allowed: prints a dry-run line, exit 0. Not listed: `not allowed: <pkg> ...`, exit 3.
 Verification failure: exit 2. Invalid package identifier or a non-dry-run without `--state`: exit 4.
 
-A real (non-dry-run) run records the accepted sequence in `--state` and prints
-`installer not wired in this build`. It installs nothing. The state file only records intent:
-deleting it resets the counter, there is no inter-process lock, and no installer is connected to
-it, so it is **not** real rollback protection.
+A real (non-dry-run) run without `--package-file` takes the cooperative state lock, records the
+accepted sequence and the document digest in `--state` through the digest-bound rollback store,
+prints `installer not wired in this build; use --package-file`, and exits 0. It installs nothing
+on this path: the state records intent only, and deleting it resets the counter. Passing
+`--audit-log` without `--package-file` or `--recover` is a usage error (exit 4). The real install
+path is `--package-file`; see "Exact-file install and recovery" below.
 
 ## sign
 

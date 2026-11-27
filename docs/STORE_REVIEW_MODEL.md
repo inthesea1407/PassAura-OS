@@ -258,5 +258,7 @@ after this doc's first version and is section 5a.
    channel — no new transport work needed.
 4. Quorum size m and reviewer count n are owner decisions; defaults in the
    design (2-of-3) are placeholders, not approvals. The duplicate-idea rule
-   (section 5a) is decided; its schema is a future migration (0014 draft),
-   its voting half waits for real users.
+   (section 5a) is decided; its schema is merged as
+   `supabase/migrations/0014_store_competition.sql` with 21 pgTAP tests (a
+   DESIGN DRAFT the owner applies), while its voting half waits for real
+   users.
