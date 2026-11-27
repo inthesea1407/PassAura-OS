@@ -4,10 +4,27 @@ Goal: a hardened Android variant and a hardened Linux variant, sharing one
 security core (`pos-core`).
 
 ## What exists and is tested today
-- `pos-core`: deny-by-default permission engine (auth, grants, expiry, revoke, explicit deny).
-- `pos-android`, `pos-windows`: permission mappers (interfaces only).
+- `pos-core`: deny-by-default permission engine (auth, grants, expiry, revoke, explicit deny),
+  hash-chained audit log, invite/seed membership, device registry, password-manager blocking
+  decision logic.
+- `pos-gate`: signed v2 allowlists (Ed25519, threshold keyring, rollback sequence), package
+  identity from .deb control data, apt/dpkg gate hook.
+- `pos-cli`: verify/install/sign/keygen/audit, the update client (local-dir and HTTPS
+  transports), the store pre-review checker and publish tooling.
+- `pos-install`, `pos-update`, `pos-update-install`: crash-safe install transaction with
+  journal and state lock; signed update manifests; handoff. The real dpkg path has never
+  run on hardware.
+- `pos-crypto-suites`, `pos-vault-store`: layered crypto suites and an encrypted vault file
+  (not audited).
+- `pos-platform`, `pos-linux`, `pos-windows`, `pos-android`: platform adapters; the Windows
+  side generates AppLocker/registry policy, never writes to a real registry.
 - `pos-hardening`: audits a kernel `.config` against `profiles/linux-kernel-hardening.txt`.
-- CI: `cargo test --workspace`.
+- `pos-netpolicy`: per-UID nftables generator (nft syntax unverified on a real kernel).
+- Also: a Debian image recipe, a Windows hardening profile, a draft Android device-owner app,
+  and a drafted Supabase backend (migrations 0001-0014, DESIGN DRAFTs the owner applies).
+- CI: `cargo test --workspace` on Linux and Windows runners, clippy/fmt/MSRV checks, fuzz
+  smoke tests, Android CI, pgTAP SQL tests, shell/image/netpolicy workflows, and security
+  scans (cargo audit, cargo deny, gitleaks).
 
 ## What this is not (yet)
 It is not a bootable OS. No kernel, Android image or ROM is built here.
@@ -29,12 +46,13 @@ PassAura policy on top. Plan:
 
 ## Security design principles
 - Deny by default. Least privilege. Explicit deny wins.
-- Every decision is auditable (audit log is the next milestone).
+- Every decision is auditable (the hash-chained audit log in `pos-core::audit` exists and is tested; newest-record truncation needs an external anchor).
 - Small trusted core in memory-safe Rust.
 - Claims about security are made only after tests and, later, an external review. "Very high security" is a design target, not a property we can claim yet.
 
 ## Milestones
-1. Audit log and persistent policy store in `pos-core`.
+1. Done: hash-chained audit log in `pos-core` (truncation of the newest records needs an
+   external anchor, documented in docs/CONFORMANCE.md).
 2. Linux kernel hardening CI with a real `.config`.
 3. Cloud build VM for the Android and Linux images.
 4. Device and QEMU boot tests.
