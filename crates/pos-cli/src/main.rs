@@ -172,16 +172,23 @@ enum Cmd {
         out: PathBuf,
     },
     /// Check a channel for a signed update, stage it, and install its .deb
-    /// artifacts. No network: a local transport directory only. See
-    /// docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md.
+    /// artifacts. The transport is a local directory or an HTTPS URL. See
+    /// docs/UPDATE_CLIENT_DESIGN.md, docs/UPDATE_INSTALL_HANDOFF.md and
+    /// docs/UPDATE_TRANSPORT_HTTPS.md.
     Update {
         /// Channel name (e.g. "stable")
         #[arg(long)]
         channel: String,
         /// Transport directory: the signed envelope is DIR/<channel>.json and
-        /// each artifact is DIR/<artifact name>
+        /// each artifact is DIR/<artifact name>. Pass this or --transport-url.
         #[arg(long)]
-        transport_dir: PathBuf,
+        transport_dir: Option<PathBuf>,
+        /// HTTPS base URL of an update server: the signed envelope is
+        /// URL/<channel>.json and each artifact is URL/<artifact name>. https
+        /// only, no redirects, no proxies, size-capped responses. Pass this or
+        /// --transport-dir.
+        #[arg(long)]
+        transport_url: Option<String>,
         /// Update keys JSON: {"keys":[{key_id,public_key_hex,valid_from,valid_until,retired}]}.
         /// These authorize fetching and staging only, never an install.
         #[arg(long)]
@@ -873,7 +880,8 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
 
 struct UpdateArgs {
     channel: String,
-    transport_dir: PathBuf,
+    transport_dir: Option<PathBuf>,
+    transport_url: Option<String>,
     update_keys: PathBuf,
     threshold: usize,
     keyring: PathBuf,
@@ -916,6 +924,157 @@ impl pos_update::flow::Transport for DirTransport {
         Ok(Box::new(std::fs::File::open(
             self.dir.join(&artifact.name),
         )?))
+    }
+}
+
+/// Minimal blocking HTTP GET behind UrlTransport, so unit tests substitute a
+/// fake without a network.
+trait HttpGet {
+    /// GETs `url` and returns the body. Implementations must fail on
+    /// redirects, non-2xx statuses and bodies over `max_bytes`.
+    fn get(&mut self, url: &str, max_bytes: u64) -> std::io::Result<Vec<u8>>;
+}
+
+/// ureq-backed HttpGet: rustls with the bundled webpki root store (never the
+/// OS store), no redirect following, no proxy use, bounded timeouts, HTTP/1.1.
+/// See docs/UPDATE_TRANSPORT_HTTPS.md.
+struct UreqGet {
+    agent: ureq::Agent,
+}
+
+impl UreqGet {
+    fn new() -> Self {
+        let config = ureq::Agent::config_builder()
+            .max_redirects(0)
+            .timeout_connect(Some(std::time::Duration::from_secs(10)))
+            .timeout_recv_body(Some(std::time::Duration::from_secs(30)))
+            .timeout_global(Some(std::time::Duration::from_secs(120)))
+            .build();
+        UreqGet {
+            agent: ureq::Agent::new_with_config(config),
+        }
+    }
+}
+
+impl HttpGet for UreqGet {
+    fn get(&mut self, url: &str, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+        let mut resp = self.agent.get(url).call().map_err(std::io::Error::other)?;
+        // ureq errors on 4xx/5xx but returns a 3xx it may not follow; any
+        // non-2xx (redirects included) is a failure here.
+        if !resp.status().is_success() {
+            return Err(std::io::Error::other(format!(
+                "unexpected HTTP status {}",
+                resp.status()
+            )));
+        }
+        resp.body_mut()
+            .with_config()
+            .limit(max_bytes)
+            .read_to_vec()
+            .map_err(std::io::Error::other)
+    }
+}
+
+/// Validates and normalizes a --transport-url value. https only; no userinfo,
+/// query or fragment (a URL must carry no credentials); trailing slashes are
+/// stripped so path joins are predictable.
+fn validate_transport_url(url: &str) -> Result<String, String> {
+    let rest = url.strip_prefix("https://").ok_or_else(|| {
+        "transport URL must use https://; plain http is never accepted".to_string()
+    })?;
+    if rest.contains('@') {
+        return Err("transport URL must not contain userinfo (user@host)".to_string());
+    }
+    if rest.contains('?') || rest.contains('#') {
+        return Err("transport URL must not contain a query string or fragment".to_string());
+    }
+    let host = rest.split('/').next().unwrap_or_default();
+    if host.is_empty() {
+        return Err("transport URL has no host".to_string());
+    }
+    Ok(url.trim_end_matches('/').to_string())
+}
+
+/// HTTPS transport for the update flow: URL/<channel>.json for the signed
+/// envelope, URL/<artifact name> for payloads (names are safe names, checked
+/// before any fetch). The signed manifest remains the only root of trust; TLS
+/// is transport, not verification. See docs/UPDATE_TRANSPORT_HTTPS.md.
+struct UrlTransport {
+    base: String,
+    http: Box<dyn HttpGet>,
+}
+
+impl pos_update::flow::Transport for UrlTransport {
+    fn fetch_manifest(&mut self, channel: &str) -> std::io::Result<Vec<u8>> {
+        self.http.get(
+            &format!("{}/{channel}.json", self.base),
+            pos_update::MAX_ENVELOPE_BYTES as u64,
+        )
+    }
+    fn fetch_artifact<'a>(
+        &'a mut self,
+        _channel: &str,
+        artifact: &pos_update::Artifact,
+    ) -> std::io::Result<Box<dyn std::io::Read + 'a>> {
+        let bytes = self
+            .http
+            .get(&format!("{}/{}", self.base, artifact.name), artifact.size)?;
+        if bytes.len() as u64 != artifact.size {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "artifact {}: manifest says {} bytes, server sent {}",
+                    artifact.name,
+                    artifact.size,
+                    bytes.len()
+                ),
+            ));
+        }
+        Ok(Box::new(std::io::Cursor::new(bytes)))
+    }
+}
+
+/// The one configured update transport.
+enum AnyTransport {
+    Dir(DirTransport),
+    Url(UrlTransport),
+}
+
+impl pos_update::flow::Transport for AnyTransport {
+    fn fetch_manifest(&mut self, channel: &str) -> std::io::Result<Vec<u8>> {
+        match self {
+            Self::Dir(t) => t.fetch_manifest(channel),
+            Self::Url(t) => t.fetch_manifest(channel),
+        }
+    }
+    fn fetch_artifact<'a>(
+        &'a mut self,
+        channel: &str,
+        artifact: &pos_update::Artifact,
+    ) -> std::io::Result<Box<dyn std::io::Read + 'a>> {
+        match self {
+            Self::Dir(t) => t.fetch_artifact(channel, artifact),
+            Self::Url(t) => t.fetch_artifact(channel, artifact),
+        }
+    }
+}
+
+/// Resolves the exactly-one-of --transport-dir / --transport-url rule and
+/// builds the transport.
+fn build_transport(a: &UpdateArgs) -> Result<AnyTransport, String> {
+    match (&a.transport_dir, &a.transport_url) {
+        (Some(dir), None) => Ok(AnyTransport::Dir(DirTransport { dir: dir.clone() })),
+        (None, Some(url)) => {
+            let base = validate_transport_url(url)?;
+            Ok(AnyTransport::Url(UrlTransport {
+                base,
+                http: Box::new(UreqGet::new()),
+            }))
+        }
+        (Some(_), Some(_)) => {
+            Err("pass exactly one of --transport-dir or --transport-url, not both".to_string())
+        }
+        (None, None) => Err("pass one of --transport-dir or --transport-url".to_string()),
     }
 }
 
@@ -1019,8 +1178,12 @@ fn cmd_update<R: pos_gate::linux_backend::CommandRunner>(runner: R, a: UpdateArg
             return ExitCode::from(2);
         }
     };
-    let mut transport = DirTransport {
-        dir: a.transport_dir.clone(),
+    let mut transport = match build_transport(&a) {
+        Ok(t) => t,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::from(4);
+        }
     };
     let mut sr = a.state.clone().into_os_string();
     sr.push(".update-staging");
@@ -1188,6 +1351,7 @@ fn main() -> ExitCode {
         Cmd::Update {
             channel,
             transport_dir,
+            transport_url,
             update_keys,
             threshold,
             keyring,
@@ -1200,6 +1364,7 @@ fn main() -> ExitCode {
             UpdateArgs {
                 channel,
                 transport_dir,
+                transport_url,
                 update_keys,
                 threshold,
                 keyring,
@@ -1733,7 +1898,8 @@ mod tests {
             fn args(&self, dry_run: bool) -> UpdateArgs {
                 UpdateArgs {
                     channel: CHANNEL.into(),
-                    transport_dir: self.dir.join("transport"),
+                    transport_dir: Some(self.dir.join("transport")),
+                    transport_url: None,
                     update_keys: self.dir.join("update-keys.json"),
                     threshold: 1,
                     keyring: self.install_kr_path.clone(),
@@ -1848,5 +2014,180 @@ mod tests {
             assert_eq!(f.n(), 0);
             assert_eq!(e.install_seq(), None);
         }
+    }
+}
+
+#[cfg(test)]
+mod url_transport_tests {
+    use super::*;
+    use pos_update::flow::Transport;
+    use std::collections::HashMap;
+    use std::io::Read as _;
+
+    struct FakeHttp {
+        bodies: HashMap<String, Vec<u8>>,
+    }
+
+    impl HttpGet for FakeHttp {
+        fn get(&mut self, url: &str, max_bytes: u64) -> std::io::Result<Vec<u8>> {
+            let body = self
+                .bodies
+                .get(url)
+                .cloned()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "404"))?;
+            if body.len() as u64 > max_bytes {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "body over limit",
+                ));
+            }
+            Ok(body)
+        }
+    }
+
+    fn artifact(name: &str, size: u64) -> pos_update::Artifact {
+        pos_update::Artifact {
+            name: name.to_string(),
+            version: "0".to_string(),
+            sha256: "0".repeat(64),
+            size,
+        }
+    }
+
+    #[test]
+    fn url_validation() {
+        assert!(validate_transport_url("http://updates.example.com").is_err());
+        assert!(validate_transport_url("updates.example.com").is_err());
+        assert!(validate_transport_url("https://user:pw@updates.example.com").is_err());
+        assert!(validate_transport_url("https://updates.example.com/?key=1").is_err());
+        assert!(validate_transport_url("https://updates.example.com/#frag").is_err());
+        assert!(validate_transport_url("https:///path").is_err());
+        assert_eq!(
+            validate_transport_url("https://updates.example.com/pos/").unwrap(),
+            "https://updates.example.com/pos"
+        );
+        assert_eq!(
+            validate_transport_url("https://updates.example.com:8443").unwrap(),
+            "https://updates.example.com:8443"
+        );
+    }
+
+    #[test]
+    fn url_transport_fetches_manifest_and_artifact() {
+        let mut bodies = HashMap::new();
+        bodies.insert("https://u.example/stable.json".to_string(), b"{}".to_vec());
+        bodies.insert(
+            "https://u.example/app.deb".to_string(),
+            b"deb-bytes".to_vec(),
+        );
+        let mut t = UrlTransport {
+            base: "https://u.example".to_string(),
+            http: Box::new(FakeHttp { bodies }),
+        };
+        assert_eq!(t.fetch_manifest("stable").unwrap(), b"{}");
+        let a = artifact("app.deb", 9);
+        let mut buf = Vec::new();
+        t.fetch_artifact("stable", &a)
+            .unwrap()
+            .read_to_end(&mut buf)
+            .unwrap();
+        assert_eq!(buf, b"deb-bytes");
+    }
+
+    #[test]
+    fn url_transport_rejects_size_mismatch_and_over_limit() {
+        let mut bodies = HashMap::new();
+        bodies.insert("https://u.example/app.deb".to_string(), b"short".to_vec());
+        let mut t = UrlTransport {
+            base: "https://u.example".to_string(),
+            http: Box::new(FakeHttp { bodies }),
+        };
+        // Manifest says 100 bytes, server sent 5.
+        let a = artifact("app.deb", 100);
+        assert!(t.fetch_artifact("stable", &a).is_err());
+        // Manifest says 4 bytes, server sent 5 (over the read limit).
+        let a = artifact("app.deb", 4);
+        assert!(t.fetch_artifact("stable", &a).is_err());
+    }
+
+    #[test]
+    fn build_transport_requires_exactly_one_source() {
+        let base = UpdateArgs {
+            channel: "stable".to_string(),
+            transport_dir: None,
+            transport_url: None,
+            update_keys: PathBuf::from("k.json"),
+            threshold: 1,
+            keyring: PathBuf::from("keyring.json"),
+            state: PathBuf::from("state.json"),
+            audit_log: PathBuf::from("audit.jsonl"),
+            update_state_dir: PathBuf::from("state-dir"),
+            dry_run: true,
+        };
+        assert!(build_transport(&base).is_err());
+        let both = UpdateArgs {
+            transport_dir: Some(PathBuf::from("/tmp/t")),
+            transport_url: Some("https://u.example".to_string()),
+            ..base
+        };
+        assert!(build_transport(&both).is_err());
+        let bad_url = UpdateArgs {
+            transport_url: Some("http://u.example".to_string()),
+            ..both
+        };
+        assert!(build_transport(&bad_url).is_err());
+        let url = UpdateArgs {
+            transport_dir: None,
+            ..bad_url.clone_with("https://u.example".to_string())
+        };
+        assert!(build_transport(&url).is_ok());
+    }
+
+    impl UpdateArgs {
+        fn clone_with(&self, url: String) -> Self {
+            UpdateArgs {
+                channel: self.channel.clone(),
+                transport_dir: self.transport_dir.clone(),
+                transport_url: Some(url),
+                update_keys: self.update_keys.clone(),
+                threshold: self.threshold,
+                keyring: self.keyring.clone(),
+                state: self.state.clone(),
+                audit_log: self.audit_log.clone(),
+                update_state_dir: self.update_state_dir.clone(),
+                dry_run: self.dry_run,
+            }
+        }
+    }
+
+    /// Serves each queued response on a one-shot 127.0.0.1 listener and
+    /// returns its base URL. Test-only: production code never accepts http://
+    /// (validate_transport_url), this exists to exercise UreqGet's plumbing.
+    fn serve_once(responses: Vec<&'static str>) -> String {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for resp in responses {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut req = [0u8; 1024];
+                let _ = sock.read(&mut req);
+                use std::io::Write as _;
+                sock.write_all(resp.as_bytes()).unwrap();
+            }
+        });
+        format!("http://127.0.0.1:{port}")
+    }
+
+    #[test]
+    fn ureq_get_reads_body_and_rejects_redirect() {
+        let base = serve_once(vec![
+            "HTTP/1.1 302 Found\r\nLocation: /other\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
+        ]);
+        let mut http = UreqGet::new();
+        // Redirects are never followed.
+        assert!(http.get(&base, 1024).is_err());
+        // A plain 200 body is returned.
+        assert_eq!(http.get(&base, 1024).unwrap(), b"hello");
     }
 }

@@ -111,17 +111,19 @@ detectable.
 ## update
 
 ```
-pos-cli update --channel stable \
-  --transport-dir DIR \
-  --update-keys update-keys.json --threshold 2 \
-  --keyring keyring.json \
-  --state state.json --audit-log audit.jsonl \
-  --update-state-dir update-state/ [--dry-run]
+pos-cli update --channel stable   (--transport-dir DIR | --transport-url https://HOST[/PATH])   --update-keys update-keys.json --threshold 2   --keyring keyring.json   --state state.json --audit-log audit.jsonl   --update-state-dir update-state/ [--dry-run]
 ```
 
 Checks a channel for a signed update and, when the channel advanced, verifies the manifest
-(threshold Ed25519, expiry, per-channel rollback state), stages the payloads from the local
-transport directory with their hashes re-checked, and installs every `X.deb` artifact whose
+(threshold Ed25519, expiry, per-channel rollback state), stages the payloads from the transport
+with their hashes re-checked, and installs every `X.deb` artifact whose
+
+Exactly one transport is passed. `--transport-dir DIR` reads the signed envelope from
+`DIR/<channel>.json` and each artifact from `DIR/<name>`. `--transport-url URL` fetches
+`URL/<channel>.json` and `URL/<name>` over https only (rustls with bundled webpki roots; no
+redirects, proxies, caching or retries; responses size-capped before reading; no credentials in
+the URL). TLS is transport, not trust: the signed manifest remains the only root of trust. See
+docs/UPDATE_TRANSPORT_HTTPS.md.
 paired signed `X.allowlist.json` authorizes it, through the install pipeline. See
 docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md. No network: the transport
 is a local directory holding the envelope at `DIR/<channel>.json` and each artifact at

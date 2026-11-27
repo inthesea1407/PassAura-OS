@@ -1,2 +1,4 @@
 [licenses]
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0"]
+# CDLA-Permissive-2.0: webpki-roots (the bundled TLS root store for the
+# update transport). Zlib: zlib-rs (TLS compression path). Both permissive.
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-3.0", "CDLA-Permissive-2.0", "Zlib"]
