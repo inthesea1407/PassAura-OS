@@ -1090,6 +1090,8 @@ dependencies = [
  "pos-core",
  "pos-gate",
  "pos-install",
+ "pos-update",
+ "pos-update-install",
  "predicates",
  "rand 0.8.8",
  "serde",

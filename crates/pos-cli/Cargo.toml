@@ -14,6 +14,8 @@ clap = { version = "4.5", features = ["derive"] }
 pos-gate = { path = "../pos-gate" }
 pos-core = { path = "../pos-core" }
 pos-install = { path = "../pos-install" }
+pos-update = { path = "../pos-update", features = ["file-state"] }
+pos-update-install = { path = "../pos-update-install" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ed25519-dalek = { version = "2", features = ["rand_core"] }

@@ -171,6 +171,42 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Check a channel for a signed update, stage it, and install its .deb
+    /// artifacts. No network: a local transport directory only. See
+    /// docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md.
+    Update {
+        /// Channel name (e.g. "stable")
+        #[arg(long)]
+        channel: String,
+        /// Transport directory: the signed envelope is DIR/<channel>.json and
+        /// each artifact is DIR/<artifact name>
+        #[arg(long)]
+        transport_dir: PathBuf,
+        /// Update keys JSON: {"keys":[{key_id,public_key_hex,valid_from,valid_until,retired}]}.
+        /// These authorize fetching and staging only, never an install.
+        #[arg(long)]
+        update_keys: PathBuf,
+        /// Number of distinct update signatures required (k-of-n)
+        #[arg(long)]
+        threshold: usize,
+        /// Install keyring.json; only allowlists signed by these keys
+        /// authorize a .deb install
+        #[arg(long)]
+        keyring: PathBuf,
+        /// Install rollback state file (v2 allowlists)
+        #[arg(long)]
+        state: PathBuf,
+        /// Hash-chained audit log
+        #[arg(long)]
+        audit_log: PathBuf,
+        /// Directory for per-channel accepted-manifest state (created if missing)
+        #[arg(long)]
+        update_state_dir: PathBuf,
+        /// Verify and stage, print what WOULD be installed, then stop.
+        /// Installs nothing and persists nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn now_secs() -> u64 {
@@ -833,6 +869,266 @@ fn cmd_keygen(out: PathBuf) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+// ---- update: signed channel update, staged and installed (docs/UPDATE_CLIENT_DESIGN.md)
+
+struct UpdateArgs {
+    channel: String,
+    transport_dir: PathBuf,
+    update_keys: PathBuf,
+    threshold: usize,
+    keyring: PathBuf,
+    state: PathBuf,
+    audit_log: PathBuf,
+    update_state_dir: PathBuf,
+    dry_run: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct UpdateKeysFile {
+    keys: Vec<UpdateKeyJson>,
+}
+
+#[derive(serde::Deserialize)]
+struct UpdateKeyJson {
+    key_id: String,
+    public_key_hex: String,
+    valid_from: u64,
+    valid_until: u64,
+    retired: bool,
+}
+
+/// Local-directory Transport. The manifest is verified before any artifact is
+/// fetched, and artifact names are safe names, so these joins cannot escape
+/// the directory. No network.
+struct DirTransport {
+    dir: PathBuf,
+}
+
+impl pos_update::flow::Transport for DirTransport {
+    fn fetch_manifest(&mut self, channel: &str) -> std::io::Result<Vec<u8>> {
+        std::fs::read(self.dir.join(format!("{channel}.json")))
+    }
+    fn fetch_artifact<'a>(
+        &'a mut self,
+        _channel: &str,
+        artifact: &pos_update::Artifact,
+    ) -> std::io::Result<Box<dyn std::io::Read + 'a>> {
+        Ok(Box::new(std::fs::File::open(
+            self.dir.join(&artifact.name),
+        )?))
+    }
+}
+
+/// The message PlanHandoff returns so the flow unwinds without installing or
+/// persisting state. Compared exactly, never parsed.
+const UPDATE_DRY_RUN_SENTINEL: &str = "dry-run: verified and staged, nothing installed";
+
+/// Dry-run handoff: records what a real run would install, then stops the
+/// flow. run_update treats the error as a handoff failure: no state is
+/// persisted and the staged files are cleaned up.
+struct PlanHandoff {
+    planned: Vec<String>,
+}
+
+impl pos_update::flow::Handoff for PlanHandoff {
+    fn handoff(
+        &mut self,
+        _verified: &pos_update::Verified,
+        staged: &pos_update::flow::StagedUpdate,
+    ) -> Result<(), pos_update::flow::HandoffError> {
+        for f in &staged.files {
+            if let Some(base) = f.name.strip_suffix(pos_update_install::DEB_SUFFIX) {
+                let list = format!("{base}{}", pos_update_install::ALLOWLIST_SUFFIX);
+                if staged.files.iter().any(|g| g.name == list) {
+                    self.planned
+                        .push(format!("{} (authorized by {list})", f.name));
+                } else {
+                    self.planned.push(format!(
+                        "{} (NO paired {list}; a real run would refuse it)",
+                        f.name
+                    ));
+                }
+            }
+        }
+        Err(pos_update::flow::HandoffError(
+            UPDATE_DRY_RUN_SENTINEL.into(),
+        ))
+    }
+}
+
+fn cmd_update<R: pos_gate::linux_backend::CommandRunner>(runner: R, a: UpdateArgs) -> ExitCode {
+    use pos_update::flow::{run_update, FlowError, Options, Outcome};
+    let raw = match read_json(&a.update_keys) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(4);
+        }
+    };
+    let parsed: UpdateKeysFile = match serde_json::from_slice(&raw) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!(
+                "error: {}: not an update-keys file: {e}",
+                a.update_keys.display()
+            );
+            return ExitCode::from(4);
+        }
+    };
+    if a.threshold == 0 || a.threshold > parsed.keys.len() {
+        eprintln!("error: --threshold must be between 1 and the number of update keys");
+        return ExitCode::from(4);
+    }
+    let mut keys = Vec::with_capacity(parsed.keys.len());
+    for k in &parsed.keys {
+        let pk: [u8; 32] = match hex::decode(&k.public_key_hex)
+            .ok()
+            .and_then(|v| v.try_into().ok())
+        {
+            Some(p) => p,
+            None => {
+                eprintln!(
+                    "error: update key {}: public_key_hex is not 32 bytes of hex",
+                    k.key_id
+                );
+                return ExitCode::from(4);
+            }
+        };
+        keys.push(pos_update::TrustedKey {
+            key_id: k.key_id.clone(),
+            public_key: pk,
+            valid_from: k.valid_from,
+            valid_until: k.valid_until,
+            retired: k.retired,
+        });
+    }
+    let now = now_secs();
+    let policy = pos_update::VerifyPolicy::new(&keys, a.threshold, now, &a.channel);
+    if let Err(e) = std::fs::create_dir_all(&a.update_state_dir) {
+        eprintln!("error: cannot create {}: {e}", a.update_state_dir.display());
+        return ExitCode::from(4);
+    }
+    let mut store = match pos_update::file_state::FileStateStore::acquire(
+        &a.update_state_dir,
+        &a.channel,
+        std::time::Duration::from_secs(5),
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: update state for channel {}: {e}", a.channel);
+            return ExitCode::from(2);
+        }
+    };
+    let mut transport = DirTransport {
+        dir: a.transport_dir.clone(),
+    };
+    let mut sr = a.state.clone().into_os_string();
+    sr.push(".update-staging");
+    let stage_root = PathBuf::from(sr);
+    let opts = Options::default();
+
+    if a.dry_run {
+        let mut hand = PlanHandoff {
+            planned: Vec::new(),
+        };
+        return match run_update(
+            &a.channel,
+            &policy,
+            &mut transport,
+            &mut store,
+            &mut hand,
+            &stage_root,
+            &opts,
+        ) {
+            Ok(Outcome::AlreadyCurrent { sequence }) => {
+                println!(
+                    "channel {} is already at sequence {sequence}; nothing to do",
+                    a.channel
+                );
+                ExitCode::SUCCESS
+            }
+            Err(FlowError::Handoff(e)) if e.0 == UPDATE_DRY_RUN_SENTINEL => {
+                if hand.planned.is_empty() {
+                    println!("dry-run: update verified and staged; no .deb artifacts to install");
+                } else {
+                    println!("dry-run: update verified and staged; a real run would install:");
+                    for p in &hand.planned {
+                        println!("  {p}");
+                    }
+                }
+                println!("nothing was installed and no state was persisted");
+                ExitCode::SUCCESS
+            }
+            Ok(Outcome::Applied { .. }) => {
+                eprintln!("error: internal: dry-run handoff reported success");
+                ExitCode::from(2)
+            }
+            Err(e) => {
+                eprintln!("update failed: {e}");
+                ExitCode::from(2)
+            }
+        };
+    }
+
+    let kr_bytes = match read_json(&a.keyring) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(4);
+        }
+    };
+    let keyring = match Keyring::from_json(&kr_bytes) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("error: {}: {e}", a.keyring.display());
+            return ExitCode::from(4);
+        }
+    };
+    let backend = pos_gate::linux_backend::AptDpkgBackend::new(runner);
+    let paths = pos_install::InstallPaths::new(&a.state, &a.audit_log);
+    let mut hand = pos_update_install::InstallHandoff::new(
+        paths,
+        backend,
+        pos_gate::rollback::StdFileOps,
+        keyring,
+        now as i64,
+    );
+    match run_update(
+        &a.channel,
+        &policy,
+        &mut transport,
+        &mut store,
+        &mut hand,
+        &stage_root,
+        &opts,
+    ) {
+        Ok(Outcome::AlreadyCurrent { sequence }) => {
+            println!(
+                "channel {} is already at sequence {sequence}; nothing to do",
+                a.channel
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(Outcome::Applied {
+            sequence,
+            cleanup_complete,
+        }) => {
+            println!(
+                "update applied: channel {} is now at sequence {sequence}",
+                a.channel
+            );
+            if !cleanup_complete {
+                println!("note: some staged files could not be removed; they are left in place, never deleted here");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("update failed: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     // try_parse returns Err for usage errors; clap prints and we map to 4.
     let cli = match Cli::try_parse() {
@@ -889,6 +1185,30 @@ fn main() -> ExitCode {
         } => cmd_sign(allowlist, private_key, out),
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Audit { action } => cmd_audit(action),
+        Cmd::Update {
+            channel,
+            transport_dir,
+            update_keys,
+            threshold,
+            keyring,
+            state,
+            audit_log,
+            update_state_dir,
+            dry_run,
+        } => cmd_update(
+            ProcessRunner,
+            UpdateArgs {
+                channel,
+                transport_dir,
+                update_keys,
+                threshold,
+                keyring,
+                state,
+                audit_log,
+                update_state_dir,
+                dry_run,
+            },
+        ),
     }
 }
 
@@ -1253,6 +1573,280 @@ mod tests {
                 code(ExitCode::from(3))
             );
             assert_eq!(f.n(), 0);
+        }
+    }
+
+    // ---- update command, with a FAKE runner so no dpkg ever runs. ----
+    mod update {
+        use super::*;
+        use ed25519_dalek::Signer;
+        use pos_gate::linux_backend::{CommandOutput, CommandRunner};
+        use sha2::{Digest, Sha256};
+        use std::sync::{Arc, Mutex};
+
+        const PKG: &str = "ripgrep";
+        const VER: &str = "14";
+        const CHANNEL: &str = "stable";
+        const UPDATE_KEY_ID: &str = "update-key-1";
+
+        type Calls = Arc<Mutex<Vec<(String, Vec<String>)>>>;
+        #[derive(Clone, Default)]
+        struct Fake {
+            calls: Calls,
+        }
+        impl CommandRunner for Fake {
+            fn run(&mut self, p: &str, a: &[String]) -> Result<CommandOutput, String> {
+                self.calls.lock().unwrap().push((p.to_string(), a.to_vec()));
+                Ok(CommandOutput {
+                    success: true,
+                    code: Some(0),
+                    message: String::new(),
+                })
+            }
+        }
+        impl Fake {
+            fn n(&self) -> usize {
+                self.calls.lock().unwrap().len()
+            }
+        }
+
+        fn sha(b: &[u8]) -> String {
+            hex::encode(Sha256::digest(b))
+        }
+
+        struct Env {
+            dir: std::path::PathBuf,
+            update_sk: ed25519_dalek::SigningKey,
+            install_kr_path: PathBuf,
+        }
+
+        impl Env {
+            fn new(tag: &str) -> Env {
+                let dir = std::env::temp_dir()
+                    .join(format!("pos-cli-update-{}-{tag}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&dir);
+                std::fs::create_dir_all(dir.join("transport")).unwrap();
+                std::fs::create_dir_all(dir.join("ustate")).unwrap();
+
+                // Install side: signed v2 allowlist for the deb, and its keyring.
+                let deb = pos_gate::deb_identity::build_minimal_deb(PKG, VER);
+                let install_sk = ed25519_dalek::SigningKey::from_bytes(&[9u8; 32]);
+                let ipk = hex::encode(install_sk.verifying_key().to_bytes());
+                let ikid = pos_gate::allowlist_v2::derive_key_id(&ipk);
+                let now = now_secs() as i64;
+                let mut doc = pos_gate::allowlist_v2::V2Allowlist {
+                    format: "passaura-allowlist".into(),
+                    version: 2,
+                    sequence: 4,
+                    issued_at: now - 100,
+                    expires_at: now + 86_400,
+                    signed_by: ikid.clone(),
+                    keyring: pos_gate::allowlist_v2::V2Keyring {
+                        keys: vec![pos_gate::allowlist_v2::V2Key {
+                            key_id: ikid.clone(),
+                            public_key_hex: ipk.clone(),
+                            valid_from: 0,
+                            valid_until: now + 86_400,
+                            retired: false,
+                        }],
+                    },
+                    entries: vec![pos_gate::allowlist_v2::V2Entry {
+                        name: PKG.into(),
+                        version: Some(VER.into()),
+                        sha256: sha(&deb),
+                    }],
+                    signature_hex: String::new(),
+                };
+                let payload = pos_gate::allowlist_v2::canonical_payload_bytes(&doc).unwrap();
+                doc.signature_hex = hex::encode(install_sk.sign(&payload).to_bytes());
+                let al_bytes = serde_json::to_vec(&doc).unwrap();
+
+                // Transport dir: the two artifacts.
+                std::fs::write(dir.join("transport/p.deb"), &deb).unwrap();
+                std::fs::write(dir.join("transport/p.allowlist.json"), &al_bytes).unwrap();
+
+                let kr = serde_json::json!({"keys":[{"key_id": ikid, "public_key_hex": ipk}]});
+                let install_kr_path = dir.join("kr.json");
+                std::fs::write(&install_kr_path, kr.to_string()).unwrap();
+
+                // Update side: one trusted update key, threshold 1.
+                let update_sk = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+                let upk = hex::encode(update_sk.verifying_key().to_bytes());
+                let uk = serde_json::json!({"keys":[{
+                    "key_id": UPDATE_KEY_ID,
+                    "public_key_hex": upk,
+                    "valid_from": 0,
+                    "valid_until": now + 86_400,
+                    "retired": false
+                }]});
+                std::fs::write(dir.join("update-keys.json"), uk.to_string()).unwrap();
+                Env {
+                    dir,
+                    update_sk,
+                    install_kr_path,
+                }
+            }
+
+            /// Writes a signed envelope for a manifest covering the two artifacts.
+            fn write_envelope(&self, sequence: u64, wrong_key: bool) {
+                let now = now_secs();
+                let artifacts = ["p.deb", "p.allowlist.json"]
+                    .iter()
+                    .map(|n| {
+                        let b = std::fs::read(self.dir.join("transport").join(n)).unwrap();
+                        pos_update::Artifact {
+                            name: n.to_string(),
+                            version: VER.into(),
+                            sha256: sha(&b),
+                            size: b.len() as u64,
+                        }
+                    })
+                    .collect();
+                let m = pos_update::Manifest {
+                    format: pos_update::FORMAT.into(),
+                    channel: CHANNEL.into(),
+                    sequence,
+                    issued_at: now - 10,
+                    expires_at: now + 3600,
+                    artifacts,
+                };
+                let bytes = pos_update::signed_bytes(&m).unwrap();
+                let sk = if wrong_key {
+                    ed25519_dalek::SigningKey::from_bytes(&[6u8; 32])
+                } else {
+                    self.update_sk.clone()
+                };
+                let env = pos_update::Envelope {
+                    manifest: m,
+                    signatures: vec![pos_update::SignatureEntry {
+                        key_id: UPDATE_KEY_ID.into(),
+                        sig_hex: hex::encode(sk.sign(&bytes).to_bytes()),
+                    }],
+                };
+                std::fs::write(
+                    self.dir.join(format!("transport/{CHANNEL}.json")),
+                    serde_json::to_vec(&env).unwrap(),
+                )
+                .unwrap();
+            }
+
+            fn args(&self, dry_run: bool) -> UpdateArgs {
+                UpdateArgs {
+                    channel: CHANNEL.into(),
+                    transport_dir: self.dir.join("transport"),
+                    update_keys: self.dir.join("update-keys.json"),
+                    threshold: 1,
+                    keyring: self.install_kr_path.clone(),
+                    state: self.dir.join("state.json"),
+                    audit_log: self.dir.join("audit.log"),
+                    update_state_dir: self.dir.join("ustate"),
+                    dry_run,
+                }
+            }
+
+            fn install_seq(&self) -> Option<u64> {
+                pos_gate::rollback::RollbackStore::read_state_readonly(self.dir.join("state.json"))
+                    .unwrap()
+                    .map(|r| r.last_seq)
+            }
+        }
+
+        fn code(c: ExitCode) -> String {
+            format!("{c:?}")
+        }
+
+        #[test]
+        fn real_run_installs_through_the_whole_stack_and_persists_both_states() {
+            let e = Env::new("rr");
+            e.write_envelope(1, false);
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 1, "exactly one dpkg command planned and run");
+            assert_eq!(f.calls.lock().unwrap()[0].0, "dpkg");
+            assert_eq!(e.install_seq(), Some(4), "allowlist sequence persisted");
+            // Second run: the persisted update state makes it AlreadyCurrent.
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 1, "no second install for an already-current channel");
+        }
+
+        #[test]
+        fn dry_run_installs_and_persists_nothing() {
+            let e = Env::new("dr");
+            e.write_envelope(1, false);
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(true))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 0);
+            assert_eq!(e.install_seq(), None);
+            // Nothing persisted: a real run afterwards still installs.
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::SUCCESS)
+            );
+            assert_eq!(f.n(), 1);
+        }
+
+        #[test]
+        fn wrong_update_signature_is_refused_and_runs_nothing() {
+            let e = Env::new("bad");
+            e.write_envelope(1, true);
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::from(2))
+            );
+            assert_eq!(f.n(), 0);
+            assert_eq!(e.install_seq(), None);
+        }
+
+        #[test]
+        fn deb_without_paired_allowlist_is_refused_and_runs_nothing() {
+            let e = Env::new("np");
+            std::fs::remove_file(e.dir.join("transport/p.allowlist.json")).unwrap();
+            // Manifest covers only the deb now.
+            let b = std::fs::read(e.dir.join("transport/p.deb")).unwrap();
+            let now = now_secs();
+            let m = pos_update::Manifest {
+                format: pos_update::FORMAT.into(),
+                channel: CHANNEL.into(),
+                sequence: 1,
+                issued_at: now - 10,
+                expires_at: now + 3600,
+                artifacts: vec![pos_update::Artifact {
+                    name: "p.deb".into(),
+                    version: VER.into(),
+                    sha256: sha(&b),
+                    size: b.len() as u64,
+                }],
+            };
+            let bytes = pos_update::signed_bytes(&m).unwrap();
+            let env = pos_update::Envelope {
+                manifest: m,
+                signatures: vec![pos_update::SignatureEntry {
+                    key_id: UPDATE_KEY_ID.into(),
+                    sig_hex: hex::encode(e.update_sk.sign(&bytes).to_bytes()),
+                }],
+            };
+            std::fs::write(
+                e.dir.join(format!("transport/{CHANNEL}.json")),
+                serde_json::to_vec(&env).unwrap(),
+            )
+            .unwrap();
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::from(2))
+            );
+            assert_eq!(f.n(), 0);
+            assert_eq!(e.install_seq(), None);
         }
     }
 }

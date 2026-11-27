@@ -1,6 +1,6 @@
 # Update client design (`pos-cli update`, not built yet)
 
-Status: design note only. No code exists for this command. Everything it
+Status: implemented as `pos-cli update` (see CLI.md). Everything it
 wires together is CI-tested only and unaudited; the real dpkg backend has
 never run.
 
@@ -43,7 +43,7 @@ keyring did not sign for (UPDATE_INSTALL_HANDOFF.md).
 
 ## Decisions still open
 
-- Transport: start with a local-directory transport (fits the offline
+- Transport: the local-directory transport is what exists (fits the offline
   posture; netpolicy allow-lists are unverified on real traffic, so HTTPS
   fetch is a later step and needs its own review: TLS roots, timeouts, size
   caps, and the netpolicy rules that permit it).

@@ -108,6 +108,32 @@ to overwrite existing key files. Do not commit `private-key.json`.
 `pos-cli audit tail FILE -n N` prints the last N records. Removal of the newest records is not
 detectable.
 
+## update
+
+```
+pos-cli update --channel stable \
+  --transport-dir DIR \
+  --update-keys update-keys.json --threshold 2 \
+  --keyring keyring.json \
+  --state state.json --audit-log audit.jsonl \
+  --update-state-dir update-state/ [--dry-run]
+```
+
+Checks a channel for a signed update and, when the channel advanced, verifies the manifest
+(threshold Ed25519, expiry, per-channel rollback state), stages the payloads from the local
+transport directory with their hashes re-checked, and installs every `X.deb` artifact whose
+paired signed `X.allowlist.json` authorizes it, through the install pipeline. See
+docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md. No network: the transport
+is a local directory holding the envelope at `DIR/<channel>.json` and each artifact at
+`DIR/<artifact name>`.
+
+`--update-keys` is `{"keys":[{key_id,public_key_hex,valid_from,valid_until,retired}]}` and
+authorizes fetching and staging only; `--keyring` is the install keyring and alone authorizes
+installs. `--dry-run` verifies and stages, prints what a real run would install, and stops:
+nothing is installed and no state is persisted. An already-current channel prints its sequence
+and does nothing. Exit 0 ok or already-current, 2 verification/staging/install failure, 4 usage.
+The real run executes `dpkg`; that path has never run on hardware.
+
 ## Tests
 
 ```sh
