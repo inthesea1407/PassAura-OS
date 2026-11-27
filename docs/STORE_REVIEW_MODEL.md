@@ -89,6 +89,38 @@ Needs people (phase 3 of `docs/CLOSED_MODEL_AND_KERNEL_PATH.md`, not
 buildable here): developer identity verification, intent and quality
 judgment, a reviewer pool. The design must not claim these exist.
 
+## 5a. Duplicate ideas: the competition path (owner decision, 2026-11-27)
+
+Owner's rule (WhatsApp 16:29 EET, verbatim in the task record): the store does
+not accept two apps with the same idea. If two overlap, users rate both, the
+winner stays and the other is removed. If the winner lacks a feature the loser
+had, both developers are told what is bad and what is good in each app. If the
+developers do not agree, the lower-rated one is removed. On a tie, Instinct
+reviews both, picks the better, and removes the other. He also reconfirmed:
+everything stays on fully free infrastructure.
+
+What that means in the model:
+
+- "Same idea" is a judgment call. Nothing automated decides it; a duplicate is
+  raised by a moderator (the owner, later a review team) as a flagged pair.
+  Categories and short summaries on submissions exist so duplicates are
+  findable, not so software decides them.
+- The competition itself is store-side data: a competition record over two
+  apps, one vote per account, a closing time, a resolution. Votes and
+  competition state never cross to a device; the outcome reaches devices only
+  through the ordinary revocation path (section 8).
+- Removal of the loser is the existing revocation flow, not a new mechanism.
+- The feature-gap message to both developers is a store-side moderation
+  message, not an email or external channel: recorded with the competition so
+  both sides see the same words.
+- The tie-break is the owner's explicit delegation to Instinct, recorded here
+  as his decision. It is a judgment path, exercised only on a tied vote and
+  only with the reasoning recorded on the competition.
+- Honest limits: user rating needs users, so the voting half is phase-3 work
+  like the rest of the human half. Ratings can be brigaded; one vote per
+  account is a weak defense and stated as such, with stronger anti-abuse left
+  to when real users exist.
+
 ## 6. Threat model additions (store side)
 
 Extends `docs/THREAT_MODEL.md`; same severity labels.
@@ -135,6 +167,17 @@ free tier, RLS everywhere, Deno tests like the existing backend tests.
   submission; a changed mind is a new row, never an edit.
 - `store_reviewer_roles(account_id, granted_by, granted_at, revoked_at)`
 
+Competition path (section 5a), design only, a future migration:
+
+- `store_competitions(id, app_a, app_b, opened_by, opened_at, closes_at,
+  state, votes_a, votes_b, winner_app_id, resolution, resolved_at)` —
+  `resolution` records which rule ended it: majority, no-agreement, or the
+  owner-delegated tie-break, with the reasoning.
+- `store_votes(competition_id, account_id, choice, created_at)` — one vote
+  per account per competition (unique pair), append-only like reviews.
+- `store_dev_messages(id, competition_id, to_publisher_id, body, created_at)`
+  — the feature-gap message both developers receive; append-only.
+
 RLS sketch: publishers insert and read their own submissions; reviewers
 read `in_review` submissions and insert their own reviews; state changes
 happen only through a security-definer function that checks quorum and
@@ -166,13 +209,17 @@ inspection via `deb_identity`), and publish tooling that re-hashes and
 hands a signed allowlist to the existing channel. The human half is
 honestly out of reach until there are people to do it.
 
-**Status (2026-11-27): item 2 built.** `pos-cli review-check` runs the
+**Status (2026-11-27): items 1 and 2 built.** `pos-cli review-check` runs the
 automated pre-review checks: submission hash binding, safe-name rules,
 control-identity match, and maintainer-script heuristics over preinst,
 postinst, prerm, postrm and config. `pos-gate::deb_identity` gained an
 additive public `read_control_contents` for the script extraction; the
-existing read path is unchanged and its tests still pass. Items 1 (SQL) and
-3 (publish tooling) are not built; item 4 awaits the owner.
+existing read path is unchanged and its tests still pass. Item 1 is
+`supabase/migrations/0013_store.sql` with 20 pgTAP tests, a DESIGN DRAFT the
+owner applies to the live database when ready. Item 3 (publish tooling) is
+not built; item 4's quorum and veto questions still await the owner, while
+the duplicate-idea rule arrived after this doc's first version and is section
+5a.
 
 ## Build notes (if and when approved)
 
@@ -186,4 +233,6 @@ existing read path is unchanged and its tests still pass. Items 1 (SQL) and
 3. Publish tooling: re-hash, sign offline, emit through the update
    channel — no new transport work needed.
 4. Quorum size m and reviewer count n are owner decisions; defaults in the
-   design (2-of-3) are placeholders, not approvals.
+   design (2-of-3) are placeholders, not approvals. The duplicate-idea rule
+   (section 5a) is decided; its schema is a future migration (0014 draft),
+   its voting half waits for real users.
