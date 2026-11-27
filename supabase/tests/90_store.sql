@@ -6,7 +6,6 @@ select plan(20);
 \set p2 '''22222222-2222-2222-2222-222222222222'''
 \set r1 '''33333333-3333-3333-3333-333333333333'''
 \set r2 '''44444444-4444-4444-4444-444444444444'''
-\set good_hash '''aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'''
 
 insert into auth.users(id, email) values
   (:p1, 'p1@test'), (:p2, 'p2@test'), (:r1, 'r1@test'), (:r2, 'r2@test');
@@ -27,7 +26,7 @@ select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-1111111
 select lives_ok($$insert into public.store_apps(name, publisher_id) values ('hello-app', '11111111-1111-1111-1111-111111111111')$$, 'publisher creates own app');
 select throws_ok($$insert into public.store_apps(name, publisher_id) values ('evil-app', '22222222-2222-2222-2222-222222222222')$$, '42501', null, 'publisher cannot create an app as someone else');
 select lives_ok($$insert into public.store_submissions(app_id, version, sha256, artifact_path, size_bytes)
-  select id, '1.0', :good_hash, 'private/hello-app-1.0.deb', 1024 from public.store_apps where name = 'hello-app'$$, 'publisher submits to own app');
+  select id, '1.0', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'private/hello-app-1.0.deb', 1024 from public.store_apps where name = 'hello-app'$$, 'publisher submits to own app');
 reset role;
 
 -- p2: cannot see p1's app, cannot submit to it, cannot review.
