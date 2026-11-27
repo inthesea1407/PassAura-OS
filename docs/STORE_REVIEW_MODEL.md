@@ -81,7 +81,8 @@ Automatable now (free tools, CI-runnable):
   path, not runtime behavior.
 - **Policy check:** a password/credential manager submission is rejected by
   policy — official builds enforce PassAura as the sole credential manager,
-  and the store does not undermine that.
+  and the store does not undermine that. Apps containing ads are rejected
+  and, if found later, removed immediately (section 5b).
 - **Smoke malware scan** (e.g. ClamAV, free): stated plainly as a smoke
   check, not detection capability.
 
@@ -120,6 +121,27 @@ What that means in the model:
   like the rest of the human half. Ratings can be brigaded; one vote per
   account is a weak defense and stated as such, with stronger anti-abuse left
   to when real users exist.
+
+## 5b. Store policy: no ads, ever (owner decision, 2026-11-27)
+
+Owner's rule (WhatsApp 16:30 EET, relayed by main): any app containing ads is
+removed immediately. Unlike a duplicate (section 5a), this is not a
+competition and has no warning period: discovery at any point means the
+revocation path (section 8) runs at once, and a new submission of the same
+app is rejected on sight.
+
+Enforcement split, honestly:
+
+- **Review-time:** reviewers reject submissions containing ads. The automated
+  pre-review checks can add weak hints (known ad-SDK package names and
+  strings in the binary, ad-network domains in maintainer scripts), stated
+  as hints only: ad detection is not a solvable static problem, and no claim
+  of detection is made.
+- **Post-publish:** user reports and moderation. Removal is the ordinary
+  revocation flow, marked as a policy removal so the publisher cannot
+  re-submit unchanged.
+- The device side is unaffected: removal reaches devices as a new allowlist
+  without the entry, exactly like any other revocation.
 
 ## 6. Threat model additions (store side)
 
