@@ -8,3 +8,4 @@
 \i supabase/tests/70_premium_batches.sql
 \i supabase/tests/80_payments.sql
 \i supabase/tests/90_store.sql
+\i supabase/tests/95_store_competition.sql
