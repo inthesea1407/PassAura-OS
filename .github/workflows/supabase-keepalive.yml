@@ -13,5 +13,9 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           set -euo pipefail
+          if [ -z "${SUPABASE_URL}" ] || [ -z "${SUPABASE_ANON_KEY}" ]; then
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets are not set on the repo; nothing to keep alive yet. Skipping."
+            exit 0
+          fi
           curl -sS -f "${SUPABASE_URL}/rest/v1/admin_config?select=id&limit=1" \
             -H "apikey: ${SUPABASE_ANON_KEY}" -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" -o /dev/null
