@@ -2086,6 +2086,59 @@ mod tests {
             assert_eq!(f.n(), 0);
             assert_eq!(e.install_seq(), None);
         }
+
+        #[test]
+        fn threshold_outside_one_to_key_count_is_usage_error() {
+            let e = Env::new("thr");
+            e.write_envelope(1, false);
+            for bad in [0usize, 2] {
+                let f = Fake::default();
+                let mut a = e.args(false);
+                a.threshold = bad;
+                assert_eq!(
+                    code(cmd_update(f.clone(), a)),
+                    code(ExitCode::from(4)),
+                    "threshold {bad}"
+                );
+                assert_eq!(f.n(), 0, "threshold {bad}");
+                assert_eq!(e.install_seq(), None, "threshold {bad}");
+            }
+        }
+
+        #[test]
+        fn malformed_update_keys_file_is_usage_error() {
+            let e = Env::new("badkeys");
+            e.write_envelope(1, false);
+            std::fs::write(e.dir.join("update-keys.json"), b"not json").unwrap();
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::from(4))
+            );
+            assert_eq!(f.n(), 0);
+            assert_eq!(e.install_seq(), None);
+        }
+
+        #[test]
+        fn update_key_with_bad_public_hex_is_usage_error() {
+            let e = Env::new("badhex");
+            e.write_envelope(1, false);
+            let uk = serde_json::json!({"keys":[{
+                "key_id": UPDATE_KEY_ID,
+                "public_key_hex": "zz",
+                "valid_from": 0,
+                "valid_until": now_secs() as i64 + 86_400,
+                "retired": false
+            }]});
+            std::fs::write(e.dir.join("update-keys.json"), uk.to_string()).unwrap();
+            let f = Fake::default();
+            assert_eq!(
+                code(cmd_update(f.clone(), e.args(false))),
+                code(ExitCode::from(4))
+            );
+            assert_eq!(f.n(), 0);
+            assert_eq!(e.install_seq(), None);
+        }
     }
 }
 
