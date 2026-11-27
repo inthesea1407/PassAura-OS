@@ -166,6 +166,14 @@ inspection via `deb_identity`), and publish tooling that re-hashes and
 hands a signed allowlist to the existing channel. The human half is
 honestly out of reach until there are people to do it.
 
+**Status (2026-11-27): item 2 built.** `pos-cli review-check` runs the
+automated pre-review checks: submission hash binding, safe-name rules,
+control-identity match, and maintainer-script heuristics over preinst,
+postinst, prerm, postrm and config. `pos-gate::deb_identity` gained an
+additive public `read_control_contents` for the script extraction; the
+existing read path is unchanged and its tests still pass. Items 1 (SQL) and
+3 (publish tooling) are not built; item 4 awaits the owner.
+
 ## Build notes (if and when approved)
 
 1. `supabase/migrations/0004_store.sql`: section-7 tables, RLS, and a

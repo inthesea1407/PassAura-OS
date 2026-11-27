@@ -111,12 +111,19 @@ detectable.
 ## update
 
 ```
-pos-cli update --channel stable   (--transport-dir DIR | --transport-url https://HOST[/PATH])   --update-keys update-keys.json --threshold 2   --keyring keyring.json   --state state.json --audit-log audit.jsonl   --update-state-dir update-state/ [--dry-run]
+pos-cli update --channel stable
+  (--transport-dir DIR | --transport-url https://HOST[/PATH])
+  --update-keys update-keys.json --threshold 2
+  --keyring keyring.json
+  --state state.json --audit-log audit.jsonl
+  --update-state-dir update-state/ [--dry-run]
 ```
 
 Checks a channel for a signed update and, when the channel advanced, verifies the manifest
 (threshold Ed25519, expiry, per-channel rollback state), stages the payloads from the transport
-with their hashes re-checked, and installs every `X.deb` artifact whose
+with their hashes re-checked, and installs every `X.deb` artifact whose paired signed
+`X.allowlist.json` authorizes it, through the install pipeline. See
+docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md.
 
 Exactly one transport is passed. `--transport-dir DIR` reads the signed envelope from
 `DIR/<channel>.json` and each artifact from `DIR/<name>`. `--transport-url URL` fetches
@@ -124,10 +131,6 @@ Exactly one transport is passed. `--transport-dir DIR` reads the signed envelope
 redirects, proxies, caching or retries; responses size-capped before reading; no credentials in
 the URL). TLS is transport, not trust: the signed manifest remains the only root of trust. See
 docs/UPDATE_TRANSPORT_HTTPS.md.
-paired signed `X.allowlist.json` authorizes it, through the install pipeline. See
-docs/UPDATE_CLIENT_DESIGN.md and docs/UPDATE_INSTALL_HANDOFF.md. No network: the transport
-is a local directory holding the envelope at `DIR/<channel>.json` and each artifact at
-`DIR/<artifact name>`.
 
 `--update-keys` is `{"keys":[{key_id,public_key_hex,valid_from,valid_until,retired}]}` and
 authorizes fetching and staging only; `--keyring` is the install keyring and alone authorizes
@@ -135,6 +138,22 @@ installs. `--dry-run` verifies and stages, prints what a real run would install,
 nothing is installed and no state is persisted. An already-current channel prints its sequence
 and does nothing. Exit 0 ok or already-current, 2 verification/staging/install failure, 4 usage.
 The real run executes `dpkg`; that path has never run on hardware.
+
+## review-check
+
+```
+pos-cli review-check --deb package.deb --sha256 HASH --name NAME [--version VERSION]
+```
+
+Store pre-review checks on a submitted `.deb` (docs/STORE_REVIEW_MODEL.md): the file's SHA-256
+must equal the submission's hash, the name must pass the gate's safe-name rules, the package's
+own `control` identity must match the declared name and version, and every maintainer script
+(preinst, postinst, prerm, postrm, config) is scanned with documented heuristics. FAIL findings
+(download piped to a shell, recursive delete or world-writable chmod rooted at /, raw writes to
+block devices, mkfs, fork bombs, non-UTF-8 scripts) fail the review; WARN findings (network
+fetches, remote URLs, sudo) are printed for a human. Heuristics are not detection: a pass says
+nothing about what the installed binary does at runtime. Findings name the pattern and line
+number, never the script content. Exit 0 pass, 2 check failure, 4 usage.
 
 ## Tests
 

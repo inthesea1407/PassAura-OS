@@ -140,8 +140,13 @@ fn decompress(name: &str, data: &[u8]) -> Result<Vec<u8>, DebError> {
     Ok(out.buf)
 }
 
-/// First `control` file of a ustar archive (`./control` or `control`).
-fn control_from_tar(tar: &[u8]) -> Result<&[u8], DebError> {
+/// One ustar member: name, typeflag, and content range (start, end).
+type TarMember<'a> = (&'a [u8], u8, usize, usize);
+
+/// Walks the members of a ustar archive, yielding (name, typeflag, content
+/// start, content end) for each. Members are skipped by size, never read.
+/// Same bounds and malformed-input behavior as the original control_from_tar.
+fn walk_tar(tar: &[u8], f: &mut dyn FnMut(TarMember<'_>)) -> Result<(), DebError> {
     let mut pos = 0usize;
     while pos + 512 <= tar.len() {
         let h = &tar[pos..pos + 512];
@@ -161,16 +166,53 @@ fn control_from_tar(tar: &[u8]) -> Result<&[u8], DebError> {
         if end > tar.len() {
             return Err(DebError::BadTar);
         }
-        if (name == b"./control" || name == b"control") && (typeflag == b'0' || typeflag == 0) {
-            if size > MAX_CONTROL_FILE {
-                return Err(DebError::ControlTooLarge);
-            }
-            return Ok(&tar[start..end]);
-        }
+        f((name, typeflag, start, end));
         let padded = (end - start).div_ceil(512) * 512;
         pos = start.checked_add(padded).ok_or(DebError::BadTar)?;
     }
-    Err(DebError::NoControlFile)
+    Ok(())
+}
+
+/// First `control` file of a ustar archive (`./control` or `control`).
+fn control_from_tar(tar: &[u8]) -> Result<&[u8], DebError> {
+    let mut found: Option<(usize, usize)> = None;
+    let mut too_large = false;
+    walk_tar(tar, &mut |(name, typeflag, start, end)| {
+        if found.is_some() || too_large {
+            return;
+        }
+        if (name == b"./control" || name == b"control") && (typeflag == b'0' || typeflag == 0) {
+            if (end - start) as u64 > MAX_CONTROL_FILE {
+                too_large = true;
+            } else {
+                found = Some((start, end));
+            }
+        }
+    })?;
+    if too_large {
+        return Err(DebError::ControlTooLarge);
+    }
+    let (start, end) = found.ok_or(DebError::NoControlFile)?;
+    Ok(&tar[start..end])
+}
+
+/// Maintainer script names collected from a control archive.
+pub const MAINTAINER_SCRIPTS: [&str; 5] = ["preinst", "postinst", "prerm", "postrm", "config"];
+
+/// One maintainer script found in the control archive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlScript {
+    /// Bare name: one of MAINTAINER_SCRIPTS.
+    pub name: String,
+    /// Raw body, capped at MAX_CONTROL_FILE.
+    pub body: Vec<u8>,
+}
+
+/// The control file's identity plus the package's maintainer scripts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ControlContents {
+    pub identity: DebIdentity,
+    pub scripts: Vec<ControlScript>,
 }
 
 /// Parses the fields we need. A folded (indented) line belongs to the field above. Duplicated `Package`
@@ -222,8 +264,9 @@ pub fn parse_control(bytes: &[u8]) -> Result<DebIdentity, DebError> {
     })
 }
 
-/// Reads the identity from a `.deb`.
-pub fn read_identity<R: Read + Seek>(r: &mut R) -> Result<DebIdentity, DebError> {
+/// Locates and decompresses the control member of a `.deb`. Shared by
+/// read_identity and read_control_contents; bounds identical for both.
+fn read_control_tar<R: Read + Seek>(r: &mut R) -> Result<Vec<u8>, DebError> {
     let total = r.seek(SeekFrom::End(0))?;
     r.seek(SeekFrom::Start(0))?;
     let mut magic = [0u8; 8];
@@ -257,13 +300,69 @@ pub fn read_identity<R: Read + Seek>(r: &mut R) -> Result<DebIdentity, DebError>
             }
             let mut data = vec![0u8; size as usize];
             r.read_exact(&mut data).map_err(|_| DebError::BadMember)?;
-            let tar = decompress(name, &data)?;
-            return parse_control(control_from_tar(&tar)?);
+            return decompress(name, &data);
         }
         pos = data_start + size + (size & 1);
         r.seek(SeekFrom::Start(pos))?;
     }
     Err(DebError::NoControlMember)
+}
+
+/// Reads the identity from a `.deb`.
+pub fn read_identity<R: Read + Seek>(r: &mut R) -> Result<DebIdentity, DebError> {
+    let tar = read_control_tar(r)?;
+    parse_control(control_from_tar(&tar)?)
+}
+
+/// Reads the identity and the maintainer scripts (preinst, postinst, prerm,
+/// postrm, config; first occurrence of each wins, each capped at
+/// MAX_CONTROL_FILE) from a `.deb`. Same bounds and failure behavior as
+/// read_identity. This is a consistency and inspection read on a file whose
+/// hash the caller has already checked; it is not a signature check.
+pub fn read_control_contents<R: Read + Seek>(r: &mut R) -> Result<ControlContents, DebError> {
+    let tar = read_control_tar(r)?;
+    let mut control: Option<(usize, usize)> = None;
+    let mut scripts: Vec<(String, usize, usize)> = Vec::new();
+    let mut too_large = false;
+    walk_tar(&tar, &mut |(name, typeflag, start, end)| {
+        if typeflag != b'0' && typeflag != 0 {
+            return;
+        }
+        let bare = name.strip_prefix(b"./").unwrap_or(name);
+        if bare == b"control" {
+            if control.is_none() {
+                if (end - start) as u64 > MAX_CONTROL_FILE {
+                    too_large = true;
+                } else {
+                    control = Some((start, end));
+                }
+            }
+            return;
+        }
+        if let Ok(script) = std::str::from_utf8(bare) {
+            if MAINTAINER_SCRIPTS.contains(&script) && !scripts.iter().any(|(n, _, _)| n == script)
+            {
+                if (end - start) as u64 > MAX_CONTROL_FILE {
+                    too_large = true;
+                } else {
+                    scripts.push((script.to_string(), start, end));
+                }
+            }
+        }
+    })?;
+    if too_large {
+        return Err(DebError::ControlTooLarge);
+    }
+    let (cs, ce) = control.ok_or(DebError::NoControlFile)?;
+    let identity = parse_control(&tar[cs..ce])?;
+    let scripts = scripts
+        .into_iter()
+        .map(|(name, s, e)| ControlScript {
+            name,
+            body: tar[s..e].to_vec(),
+        })
+        .collect();
+    Ok(ControlContents { identity, scripts })
 }
 
 /// The deb must be exactly the allowlisted package: same name, and the same version when the entry names one.
