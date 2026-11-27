@@ -1366,3 +1366,151 @@ fn legacy_state_write_is_refused_while_another_process_holds_the_lock() {
     assert!(!state.exists(), "state must not be written while locked");
     drop(lock);
 }
+
+// ---- update subcommand (binary level). Dry-run only: a real run would
+// execute dpkg on the host, so the install path itself stays in the unit
+// tests with a fake runner. ----
+
+use ed25519_dalek::Signer;
+use sha2::Digest as _;
+
+/// Builds a transport dir with `stable.json` (signed envelope), `p.deb` and
+/// `p.allowlist.json`, plus an update-keys file. Returns (dir paths as Vec).
+fn update_env(dir: &TempDir, wrong_sig: bool) -> Vec<std::path::PathBuf> {
+    let tdir = dir.path().join("transport");
+    let ustate = dir.path().join("ustate");
+    fs::create_dir_all(&tdir).unwrap();
+    fs::create_dir_all(&ustate).unwrap();
+    let deb = b"pretend deb bytes";
+    let al = b"{\"pretend\":\"allowlist\"}";
+    fs::write(tdir.join("p.deb"), deb).unwrap();
+    fs::write(tdir.join("p.allowlist.json"), al).unwrap();
+    let sk = ed25519_dalek::SigningKey::from_bytes(&[5u8; 32]);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let uk = serde_json::json!({"keys":[{
+        "key_id": "k1",
+        "public_key_hex": hex::encode(sk.verifying_key().to_bytes()),
+        "valid_from": 0,
+        "valid_until": now + 86_400,
+        "retired": false
+    }]});
+    let uk_path = write(dir, "update-keys.json", &uk.to_string());
+    let sha = |b: &[u8]| hex::encode(sha2::Sha256::digest(b));
+    let m = pos_update::Manifest {
+        format: pos_update::FORMAT.into(),
+        channel: "stable".into(),
+        sequence: 1,
+        issued_at: now - 10,
+        expires_at: now + 3600,
+        artifacts: vec![
+            pos_update::Artifact {
+                name: "p.deb".into(),
+                version: "1".into(),
+                sha256: sha(deb),
+                size: deb.len() as u64,
+            },
+            pos_update::Artifact {
+                name: "p.allowlist.json".into(),
+                version: "1".into(),
+                sha256: sha(al),
+                size: al.len() as u64,
+            },
+        ],
+    };
+    let bytes = pos_update::signed_bytes(&m).unwrap();
+    let signer = if wrong_sig {
+        ed25519_dalek::SigningKey::from_bytes(&[6u8; 32])
+    } else {
+        sk
+    };
+    let env = pos_update::Envelope {
+        manifest: m,
+        signatures: vec![pos_update::SignatureEntry {
+            key_id: "k1".into(),
+            sig_hex: hex::encode(signer.sign(&bytes).to_bytes()),
+        }],
+    };
+    fs::write(tdir.join("stable.json"), serde_json::to_vec(&env).unwrap()).unwrap();
+    let kr = write(dir, "kr.json", "{\"keys\":[]}");
+    vec![
+        tdir,
+        uk_path,
+        kr,
+        dir.path().join("state.json"),
+        dir.path().join("audit.log"),
+        ustate,
+    ]
+}
+
+fn update_args<'a>(paths: &'a [std::path::PathBuf], extra: &'a [&'a str]) -> Vec<String> {
+    let mut v = vec![
+        "update".to_string(),
+        "--channel".into(),
+        "stable".into(),
+        "--transport-dir".into(),
+        paths[0].to_str().unwrap().into(),
+        "--update-keys".into(),
+        paths[1].to_str().unwrap().into(),
+        "--threshold".into(),
+        "1".into(),
+        "--keyring".into(),
+        paths[2].to_str().unwrap().into(),
+        "--state".into(),
+        paths[3].to_str().unwrap().into(),
+        "--audit-log".into(),
+        paths[4].to_str().unwrap().into(),
+        "--update-state-dir".into(),
+        paths[5].to_str().unwrap().into(),
+    ];
+    v.extend(extra.iter().map(|s| s.to_string()));
+    v
+}
+
+#[test]
+fn update_dry_run_prints_plan_and_persists_nothing() {
+    let dir = TempDir::new().unwrap();
+    let paths = update_env(&dir, false);
+    bin()
+        .args(update_args(&paths, &["--dry-run"]))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("would install"))
+        .stdout(predicate::str::contains("p.deb"))
+        .stdout(predicate::str::contains("no state was persisted"));
+    assert!(!dir.path().join("state.json").exists());
+}
+
+#[test]
+fn update_wrong_signature_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let paths = update_env(&dir, true);
+    bin()
+        .args(update_args(&paths, &["--dry-run"]))
+        .assert()
+        .code(2);
+    assert!(!dir.path().join("state.json").exists());
+}
+
+#[test]
+fn update_threshold_above_key_count_is_exit4() {
+    let dir = TempDir::new().unwrap();
+    let paths = update_env(&dir, false);
+    let mut a = update_args(&paths, &["--dry-run"]);
+    let i = a.iter().position(|s| s == "--threshold").unwrap();
+    a[i + 1] = "5".into();
+    bin().args(a).assert().code(4);
+}
+
+#[test]
+fn update_missing_envelope_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let paths = update_env(&dir, false);
+    fs::remove_file(paths[0].join("stable.json")).unwrap();
+    bin()
+        .args(update_args(&paths, &["--dry-run"]))
+        .assert()
+        .code(2);
+}
