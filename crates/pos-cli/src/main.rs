@@ -2970,4 +2970,38 @@ mod store_publish_tests {
         );
         assert_eq!(code, ExitCode::from(2)); // existing pair is never overwritten
     }
+
+    #[test]
+    fn unsafe_version_is_refused_before_any_file_name_is_built() {
+        // A slash or space in the version would break the release file name.
+        let deb = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.0/evil");
+        let sha = hex::encode(sha2::Sha256::digest(&deb));
+        let (kr, _sk) = test_keyring();
+        let kid = kr.keys[0].key_id.clone();
+        let err = build_publish_doc(&deb, &sha, &kr, &kid, 1, now_secs() as i64, 100).unwrap_err();
+        assert!(err.contains("not usable in a release file name"), "{err}");
+    }
+
+    #[test]
+    fn absurd_lifetime_is_a_clean_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let deb = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.0");
+        let sha = hex::encode(sha2::Sha256::digest(&deb));
+        let (kr, _sk) = test_keyring();
+        let deb_path = dir.path().join("sub.deb");
+        std::fs::write(&deb_path, &deb).unwrap();
+        let kr_path = dir.path().join("kr.json");
+        std::fs::write(&kr_path, serde_json::to_vec(&kr).unwrap()).unwrap();
+        let code = cmd_store_publish(
+            deb_path,
+            sha,
+            kr_path,
+            kr.keys[0].key_id.clone(),
+            1,
+            u64::MAX,
+            dir.path().join("rel"),
+        );
+        assert_eq!(code, ExitCode::from(2));
+        assert!(!dir.path().join("rel").exists());
+    }
 }
