@@ -976,7 +976,9 @@ fn sign_refuses_a_key_that_does_not_match_signed_by_and_does_not_overwrite() {
         .assert()
         .code(2);
 }
-
+// The refused locations are Linux system paths; Windows resolves
+// them under the current drive and fails differently, so unix only.
+#[cfg(unix)]
 #[test]
 fn migrate_refuses_installed_allowlist_locations_even_if_the_file_does_not_exist() {
     let dir = TempDir::new().unwrap();

@@ -23,6 +23,19 @@ jobs:
       - name: pos-update with file-state and fault-injection (crash-window tests)
         run: cargo test --locked -p pos-update --features fault-injection
       - run: cargo clippy --locked -p pos-update -p pos-vault-store --all-targets --features pos-update/fault-injection -- -D warnings
+  windows-rust:
+    # The whole workspace must also build and pass its tests on Windows:
+    # cfg(windows) paths never compile on the ubuntu jobs. Unix-only tests
+    # are cfg-gated and skip themselves.
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo test --workspace --locked
   vault-every-byte:
     runs-on: ubuntu-latest
     timeout-minutes: 20

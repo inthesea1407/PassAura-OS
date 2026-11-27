@@ -421,10 +421,25 @@ pub fn append_planned_durable(path: &Path, rec: &AuditRecord) -> std::io::Result
     f.sync_all()?;
     if !existed {
         if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
-            File::open(dir)?.sync_all()?;
+            sync_dir(dir)?;
         }
     }
     Ok(AppendOutcome::Written)
+}
+
+/// fsync the parent directory so the new file name is durable. Directory
+/// fsync only exists on Unix; on Windows std cannot open a directory, so
+/// this is a no-op there (the file itself is still fsynced above).
+#[cfg(unix)]
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    File::open(dir)?.sync_all()
+}
+
+/// See the unix variant.
+#[cfg(not(unix))]
+fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    let _ = dir;
+    Ok(())
 }
 
 /// External anchor published by the operator alongside the log file:

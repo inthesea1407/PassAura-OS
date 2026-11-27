@@ -13,13 +13,13 @@ Honest status: a tested policy core, a package gate, a signed-package format, a 
 |---|---|---|
 | Policy core (Rust) | pos-core, pos-platform scaffold, 127 tests passing | one policy format shared by all three platforms |
 | Linux | Debian image recipe builds and verifies in CI; real pos-gate apt hook; AppArmor | boot the image in an emulator (QEMU in CI), enforce credential-manager allowlist on desktop |
-| Windows | AppLocker/ASR/registry profile, validated in CI (static checks only) | test on a Windows VM image in CI; WDAC policy |
+| Windows | AppLocker/ASR/registry profile, validated in CI (static checks only); whole Rust workspace builds and passes its tests on windows-latest in CI | test on a Windows VM image in CI; WDAC policy |
 | Android | device-owner app compiles in CI, credential-manager policy (API 34+) | run on an emulator in CI, QR provisioning, hardened-AOSP path |
 | Backend | migrations 0001-0009 + pgTAP pass on plain Postgres in CI; Edge Functions drafted | apply to Supabase (owner), deploy functions (owner), concurrency tests under Docker |
 | Owner panel | static app drafted | test against a live project (owner), pin supabase-js SRI |
 | Store / updates | signed packages (Ed25519); `pos-update` manifest verifier (threshold Ed25519, per-channel rollback state, expiry; pure functions, no I/O) | update client `pos-cli update` (merged; local-dir and HTTPS transports), key ceremony (owner), store review model (design + owner policies merged; pre-review checker and publish tooling merged; store DB written as 0013 draft, owner applies) |
 | Install / network | `pos-install` crash-safe install transaction (real dpkg runner never run); `pos-netpolicy` per-UID nftables generator (nft syntax unverified) | run both in the QEMU image, verify nft rules on a real kernel |
-| Crypto / storage | `pos-crypto-suites` (V1, L1 layered, tiered Argon2id, X25519+ML-KEM-768 wrap) and `pos-vault-store` (encrypted single file, rewrap with payload verify, atomic write). Not audited; ml-kem is not independently audited | wire into the apps, rollback counter, data-key rotation, Windows tests |
+| Crypto / storage | `pos-crypto-suites` (V1, L1 layered, tiered Argon2id, X25519+ML-KEM-768 wrap) and `pos-vault-store` (encrypted single file, rewrap with payload verify, atomic write). Not audited; ml-kem is not independently audited. Windows CI job runs the workspace tests (Windows tests done at build/test level, no VM) | wire into the apps, rollback counter, data-key rotation |
 
 ## Milestones
 - M1 (done): policy engine, package gate, signed packages, CI.

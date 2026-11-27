@@ -1,0 +1,5 @@
+# Tests compare committed vector files byte-for-byte with generated content,
+# and shell/SQL scripts must not pick up CRLF. Force LF checkouts everywhere,
+# including the Windows CI runners whose default core.autocrlf=true would
+# otherwise rewrite them.
+* text=auto eol=lf

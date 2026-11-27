@@ -18,6 +18,7 @@ fn happy_path_commits_in_order_and_leaves_no_residue() {
     assert!(env.stage_list().is_empty());
 }
 
+#[cfg(unix)]
 #[test]
 fn staged_file_has_the_signed_bytes_and_private_permissions() {
     use std::os::unix::fs::PermissionsExt;
@@ -480,7 +481,12 @@ fn a_leftover_lockfile_with_no_holder_does_not_block() {
 
 #[test]
 fn two_concurrent_installs_of_one_document_both_complete_serially() {
-    let env = std::sync::Arc::new(Env::new());
+    let mut env = Env::new();
+    // The point is that the lock serializes the two installs. 300ms is not
+    // enough for the loser to wait out a full install on a slow Windows CI
+    // disk; give it ten seconds (the lock-held fast-fail test keeps 300ms).
+    env.paths.lock_timeout = std::time::Duration::from_secs(10);
+    let env = std::sync::Arc::new(env);
     let doc = good_doc(3);
     let t = trusted();
     let mut handles = vec![];
@@ -490,11 +496,13 @@ fn two_concurrent_installs_of_one_document_both_complete_serially() {
         let t = t.clone();
         handles.push(std::thread::spawn(move || {
             let mut p = env.pipeline();
-            p.install(&req(&doc, &t)).is_ok()
+            p.install(&req(&doc, &t))
+                .map(|_| ())
+                .map_err(|e| e.to_string())
         }));
     }
-    let ok: Vec<bool> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-    assert!(ok.iter().all(|x| *x), "{ok:?}");
+    let ok: Vec<Result<(), String>> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    assert!(ok.iter().all(|x| x.is_ok()), "{ok:?}");
     assert_eq!(env.stored_seq(), Some(3));
     assert_eq!(env.fake.runs(), 2);
     assert!(!env.journal_exists());
@@ -526,6 +534,7 @@ fn dry_run_writes_nothing_and_does_not_create_the_lockfile() {
     ));
 }
 
+#[cfg(unix)]
 #[test]
 fn symlinked_or_loose_stage_directory_is_refused() {
     use std::os::unix::fs::{symlink, PermissionsExt};
@@ -549,6 +558,7 @@ fn symlinked_or_loose_stage_directory_is_refused() {
     assert_eq!(env.fake.runs(), 0);
 }
 
+#[cfg(unix)]
 #[test]
 fn symlinked_package_source_is_refused() {
     let env = Env::new();

@@ -391,9 +391,20 @@ impl Journal {
 }
 
 fn sync_dir(file: &Path) -> io::Result<()> {
-    let dir = file
-        .parent()
-        .filter(|d| !d.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    File::open(dir)?.sync_all()
+    // Directory fsync only exists on Unix; on Windows std cannot open a
+    // directory (ERROR_ACCESS_DENIED), so this is a no-op there. The
+    // journal file itself is still fsynced after every line.
+    #[cfg(unix)]
+    {
+        let dir = file
+            .parent()
+            .filter(|d| !d.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        File::open(dir)?.sync_all()?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = file;
+    }
+    Ok(())
 }

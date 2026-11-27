@@ -707,9 +707,12 @@ mod exact_file_fate {
     fn missing_or_garbage_staged_file_stops_before_dpkg_runs() {
         let fixture = fixture();
         let mut b = AptDpkgBackend::new(R(Err("never".into()), 0));
+        // Platform-absolute and nonexistent on every OS: "/tmp/..." is not
+        // absolute on Windows (no drive prefix) and would be refused earlier
+        // as InvalidStagedPath instead of reaching the identity check.
         let res = b.install_staged_file(
             "curl",
-            std::path::Path::new("/tmp/does-not-exist-pos.deb"),
+            &std::env::temp_dir().join("does-not-exist-pos.deb"),
             &fixture.doc,
             &fixture.keys,
             200,

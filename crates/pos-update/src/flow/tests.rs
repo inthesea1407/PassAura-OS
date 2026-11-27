@@ -240,12 +240,14 @@ fn happy_path_stages_verified_bytes_hands_off_once_persists_and_cleans_up() {
         "stage root and directory were created by this run, so both are removed"
     );
     #[cfg(unix)]
-    assert_eq!(e.h.dir_modes, vec![0o700]);
-    assert!(
-        !e.h.file_modes.is_empty() && e.h.file_modes.iter().all(|m| *m == 0o600),
-        "{:?}",
-        e.h.file_modes
-    );
+    {
+        assert_eq!(e.h.dir_modes, vec![0o700]);
+        assert!(
+            !e.h.file_modes.is_empty() && e.h.file_modes.iter().all(|m| *m == 0o600),
+            "{:?}",
+            e.h.file_modes
+        );
+    }
 }
 
 #[test]

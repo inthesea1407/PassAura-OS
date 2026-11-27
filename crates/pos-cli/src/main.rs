@@ -1451,6 +1451,9 @@ mod tests {
     use super::*;
     use std::path::Path;
 
+    // PROTECTED_DIRS are Linux system paths; Windows path parsing does not
+    // match them lexically, so this test only makes sense on unix.
+    #[cfg(unix)]
     #[test]
     fn protected_dirs_are_refused_even_when_nothing_exists_there() {
         for p in [

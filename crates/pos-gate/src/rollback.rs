@@ -51,7 +51,7 @@ impl StdFileOps {
                     if Self::is_access_denied(&err) && attempt + 1 < WINDOWS_RENAME_MAX_RETRIES =>
                 {
                     last_err = Some(err);
-                    thread::sleep(Duration::from_millis(
+                    std::thread::sleep(std::time::Duration::from_millis(
                         WINDOWS_RENAME_BACKOFF_MS * (attempt as u64 + 1),
                     ));
                 }
