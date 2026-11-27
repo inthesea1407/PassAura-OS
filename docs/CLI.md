@@ -155,6 +155,21 @@ fetches, remote URLs, sudo) are printed for a human. Heuristics are not detectio
 nothing about what the installed binary does at runtime. Findings name the pattern and line
 number, never the script content. Exit 0 pass, 2 check failure, 4 usage.
 
+## store-publish
+
+```
+pos-cli store-publish --deb package.deb --submission-sha256 HASH \
+  --keyring keyring.json --key-id KEY_ID --sequence N [--lifetime-days 30] --out DIR
+```
+
+Publishes an approved store submission (docs/STORE_REVIEW_MODEL.md section 8): the artifact's
+SHA-256 must equal the approved submission's hash (any swap refuses the publish), the package's
+control identity and the gate's safe-name rules are re-checked, and the release pair is written:
+`DIR/<name>-<version>.deb` and an UNSIGNED `DIR/<name>-<version>.allowlist.json` (v2, one entry,
+the release key's public half embedded). Existing files are never overwritten. The owner signs
+the allowlist offline with `pos-cli sign`; this tool never sees the release key. Exit 0 ok,
+2 failure.
+
 ## Tests
 
 ```sh

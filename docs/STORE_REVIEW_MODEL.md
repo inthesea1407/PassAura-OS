@@ -232,17 +232,18 @@ inspection via `deb_identity`), and publish tooling that re-hashes and
 hands a signed allowlist to the existing channel. The human half is
 honestly out of reach until there are people to do it.
 
-**Status (2026-11-27): items 1 and 2 built.** `pos-cli review-check` runs the
+**Status (2026-11-27): items 1, 2 and 3 built.** `pos-cli review-check` runs the
 automated pre-review checks: submission hash binding, safe-name rules,
 control-identity match, and maintainer-script heuristics over preinst,
 postinst, prerm, postrm and config. `pos-gate::deb_identity` gained an
 additive public `read_control_contents` for the script extraction; the
 existing read path is unchanged and its tests still pass. Item 1 is
 `supabase/migrations/0013_store.sql` with 20 pgTAP tests, a DESIGN DRAFT the
-owner applies to the live database when ready. Item 3 (publish tooling) is
-not built; item 4's quorum and veto questions still await the owner, while
-the duplicate-idea rule arrived after this doc's first version and is section
-5a.
+owner applies to the live database when ready. Item 3 is `pos-cli
+store-publish`: re-hash and refuse on any swap, identity re-check, unsigned
+release pair out; signing stays the owner's offline step. Item 4's quorum and
+veto questions still await the owner, while the duplicate-idea rule arrived
+after this doc's first version and is section 5a.
 
 ## Build notes (if and when approved)
 

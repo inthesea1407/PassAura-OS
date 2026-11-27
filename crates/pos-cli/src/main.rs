@@ -232,6 +232,34 @@ enum Cmd {
         #[arg(long)]
         version: Option<String>,
     },
+    /// Publish an approved store submission: re-hash the artifact (refuse on
+    /// any swap), read its identity, and write the release pair
+    /// OUT/<name>-<version>.deb and an UNSIGNED OUT/<name>-<version>.allowlist.json.
+    /// The owner signs the allowlist offline with `pos-cli sign`; this tool
+    /// never sees the release key. See docs/STORE_REVIEW_MODEL.md section 8.
+    StorePublish {
+        /// Path to the approved .deb artifact
+        #[arg(long)]
+        deb: PathBuf,
+        /// SHA-256 the approved submission binds (64 lowercase hex)
+        #[arg(long)]
+        submission_sha256: String,
+        /// Install keyring.json holding the release key's public half
+        #[arg(long)]
+        keyring: PathBuf,
+        /// key_id of the release key that will sign (must be in the keyring)
+        #[arg(long)]
+        key_id: String,
+        /// Allowlist sequence (monotonic per device state; the owner assigns it)
+        #[arg(long)]
+        sequence: u64,
+        /// Days the signed allowlist stays valid [default: 30]
+        #[arg(long, default_value_t = 30)]
+        lifetime_days: u64,
+        /// Release output directory (created if missing; never overwrites)
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn now_secs() -> u64 {
@@ -1370,6 +1398,23 @@ fn main() -> ExitCode {
             name,
             version,
         } => cmd_review_check(deb, sha256, name, version),
+        Cmd::StorePublish {
+            deb,
+            submission_sha256,
+            keyring,
+            key_id,
+            sequence,
+            lifetime_days,
+            out,
+        } => cmd_store_publish(
+            deb,
+            submission_sha256,
+            keyring,
+            key_id,
+            sequence,
+            lifetime_days,
+            out,
+        ),
         Cmd::Keygen { out } => cmd_keygen(out),
         Cmd::Audit { action } => cmd_audit(action),
         Cmd::Update {
@@ -2642,5 +2687,231 @@ mod review_check_tests {
         let r = run_review_check(&deb, &sha256_hex(&deb), "sudo-app", None).unwrap();
         assert!(r.findings.iter().all(|f| !f.fail));
         assert_eq!(r.scripts_scanned, 1);
+    }
+}
+
+/// The unsigned v2 allowlist authorizing exactly one approved package, plus
+/// the artifact base name for the release pair. Re-hashes the artifact and
+/// refuses on any mismatch with the approved submission hash: this is the
+/// anti-swap step between review and publish (STORE_REVIEW_MODEL threat 2).
+/// Pure; the cmd writes the files. The signature stays empty: signing is the
+/// owner's offline step (`pos-cli sign`) and this tool never sees the key.
+fn build_publish_doc(
+    deb: &[u8],
+    expected_sha256: &str,
+    keyring: &pos_gate::Keyring,
+    key_id: &str,
+    sequence: u64,
+    now: i64,
+    lifetime_secs: i64,
+) -> Result<(String, pos_gate::allowlist_v2::V2Allowlist), String> {
+    if expected_sha256.len() != 64
+        || !expected_sha256
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err("submission hash must be 64 lowercase hex characters".to_string());
+    }
+    use sha2::Digest as _;
+    let actual = hex::encode(sha2::Sha256::digest(deb));
+    if actual != expected_sha256 {
+        return Err(format!(
+            "hash mismatch: the approved submission binds {expected_sha256} but the artifact is {actual}; refusing to publish"
+        ));
+    }
+    let id = pos_gate::deb_identity::read_identity(&mut std::io::Cursor::new(deb))
+        .map_err(|e| format!("cannot read the package's control archive: {e}"))?;
+    pos_gate::names::validate_package_name(&id.package)
+        .map_err(|e| format!("package name fails the gate's safe-name rules: {e}"))?;
+    if id.version.is_empty()
+        || !id
+            .version
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".+~-_".contains(&b))
+    {
+        return Err(format!(
+            "version {:?} is not usable in a release file name",
+            id.version
+        ));
+    }
+    let key = keyring
+        .keys
+        .iter()
+        .find(|k| k.key_id == key_id)
+        .ok_or_else(|| format!("key id {key_id} is not in the keyring"))?;
+    let expires_at = now
+        .checked_add(lifetime_secs)
+        .ok_or("expiry timestamp overflows")?;
+    let base = format!("{}-{}", id.package, id.version);
+    let doc = pos_gate::allowlist_v2::V2Allowlist {
+        format: "passaura-allowlist".to_string(),
+        version: 2,
+        sequence,
+        issued_at: now,
+        expires_at,
+        signed_by: key.key_id.clone(),
+        keyring: pos_gate::allowlist_v2::V2Keyring {
+            keys: vec![pos_gate::allowlist_v2::V2Key {
+                key_id: key.key_id.clone(),
+                public_key_hex: key.public_key_hex.clone(),
+                valid_from: 0,
+                valid_until: expires_at,
+                retired: false,
+            }],
+        },
+        entries: vec![pos_gate::allowlist_v2::V2Entry {
+            name: id.package.clone(),
+            version: Some(id.version.clone()),
+            sha256: actual,
+        }],
+        signature_hex: String::new(),
+    };
+    Ok((base, doc))
+}
+
+fn cmd_store_publish(
+    deb: PathBuf,
+    submission_sha256: String,
+    keyring: PathBuf,
+    key_id: String,
+    sequence: u64,
+    lifetime_days: u64,
+    out: PathBuf,
+) -> ExitCode {
+    let run = || -> Result<(), String> {
+        let bytes =
+            std::fs::read(&deb).map_err(|e| format!("cannot read {}: {e}", deb.display()))?;
+        let kr = pos_gate::Keyring::from_json(&read_json(&keyring)?).map_err(|e| e.to_string())?;
+        let lifetime_secs = i64::try_from(lifetime_days)
+            .map_err(|_| "lifetime too large")?
+            .checked_mul(86_400)
+            .ok_or("lifetime too large")?;
+        let (base, doc) = build_publish_doc(
+            &bytes,
+            &submission_sha256,
+            &kr,
+            &key_id,
+            sequence,
+            now_secs() as i64,
+            lifetime_secs,
+        )?;
+        std::fs::create_dir_all(&out)
+            .map_err(|e| format!("cannot create {}: {e}", out.display()))?;
+        let deb_out = out.join(format!("{base}.deb"));
+        let al_out = out.join(format!("{base}.allowlist.json"));
+        write_new_file(&deb_out, &bytes)?;
+        write_new_file(
+            &al_out,
+            &serde_json::to_vec_pretty(&doc).map_err(|e| e.to_string())?,
+        )?;
+        println!("hash verified against the approved submission; wrote the release pair:");
+        println!("  {}", deb_out.display());
+        println!("  {}", al_out.display());
+        println!("the allowlist is UNSIGNED. Next: the owner signs it offline");
+        println!("(pos-cli sign) with the release key, then the signed pair goes into");
+        println!("the update transport directory. This tool never sees the key.");
+        Ok(())
+    };
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+#[cfg(test)]
+mod store_publish_tests {
+    use super::*;
+    use sha2::Digest as _;
+
+    fn test_keyring() -> (pos_gate::Keyring, ed25519_dalek::SigningKey) {
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let pk = hex::encode(sk.verifying_key().to_bytes());
+        let kid = pos_gate::allowlist_v2::derive_key_id(&pk);
+        (
+            pos_gate::Keyring {
+                keys: vec![pos_gate::allowlist::KeyEntry {
+                    key_id: kid,
+                    public_key_hex: pk,
+                }],
+            },
+            sk,
+        )
+    }
+
+    #[test]
+    fn doc_is_correct_and_verifies_once_signed() {
+        let deb = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.0");
+        let sha = hex::encode(sha2::Sha256::digest(&deb));
+        let (kr, sk) = test_keyring();
+        let kid = kr.keys[0].key_id.clone();
+        let now = now_secs() as i64;
+        let (base, mut doc) =
+            build_publish_doc(&deb, &sha, &kr, &kid, 5, now, 30 * 86_400).unwrap();
+        assert_eq!(base, "hello-app-1.0");
+        assert_eq!(doc.sequence, 5);
+        assert_eq!(doc.entries.len(), 1);
+        assert_eq!(doc.entries[0].name, "hello-app");
+        assert_eq!(doc.entries[0].sha256, sha);
+        assert_eq!(doc.signed_by, kid);
+        // Unsigned, it verifies nothing.
+        assert!(pos_gate::allowlist_v2::verify_v2_trusted(&doc, &kr, now, None).is_err());
+        // Signed the way cmd_sign signs, it verifies against the trusted keyring.
+        use ed25519_dalek::Signer as _;
+        let payload = pos_gate::allowlist_v2::canonical_payload_bytes(&doc).unwrap();
+        doc.signature_hex = hex::encode(sk.sign(&payload).to_bytes());
+        pos_gate::allowlist_v2::verify_v2_trusted(&doc, &kr, now, None).unwrap();
+    }
+
+    #[test]
+    fn anti_swap_and_bad_inputs_fail() {
+        let deb = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.0");
+        let other = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.1");
+        let sha = hex::encode(sha2::Sha256::digest(&deb));
+        let wrong = hex::encode(sha2::Sha256::digest(&other));
+        let (kr, _sk) = test_keyring();
+        let kid = kr.keys[0].key_id.clone();
+        let now = now_secs() as i64;
+        let err = build_publish_doc(&deb, &wrong, &kr, &kid, 1, now, 100).unwrap_err();
+        assert!(err.contains("hash mismatch"));
+        assert!(build_publish_doc(&deb, &sha, &kr, "nosuchkey", 1, now, 100).is_err());
+        assert!(build_publish_doc(&deb, "zz", &kr, &kid, 1, now, 100).is_err());
+    }
+
+    #[test]
+    fn cmd_writes_pair_and_never_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let deb = pos_gate::deb_identity::build_minimal_deb("hello-app", "1.0");
+        let sha = hex::encode(sha2::Sha256::digest(&deb));
+        let (kr, _sk) = test_keyring();
+        let deb_path = dir.path().join("sub.deb");
+        std::fs::write(&deb_path, &deb).unwrap();
+        let kr_path = dir.path().join("kr.json");
+        std::fs::write(&kr_path, serde_json::to_vec(&kr).unwrap()).unwrap();
+        let out = dir.path().join("rel");
+        let code = cmd_store_publish(
+            deb_path.clone(),
+            sha.clone(),
+            kr_path.clone(),
+            kr.keys[0].key_id.clone(),
+            1,
+            30,
+            out.clone(),
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(out.join("hello-app-1.0.deb").exists());
+        assert!(out.join("hello-app-1.0.allowlist.json").exists());
+        let code = cmd_store_publish(
+            deb_path,
+            sha,
+            kr_path,
+            kr.keys[0].key_id.clone(),
+            1,
+            30,
+            out,
+        );
+        assert_eq!(code, ExitCode::from(2)); // existing pair is never overwritten
     }
 }
