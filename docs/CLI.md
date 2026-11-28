@@ -102,12 +102,13 @@ pos-cli keygen --out ./keys
 
 Writes `keyring.json` (public, safe to distribute: `{"keys":[{"key_id":"ed25519:<hex16>","public_key_hex":"<hex64>"}]}`)
 and `private-key.json` (secret; mode 0600 on Unix). It creates the directory if missing and refuses
-to overwrite existing key files. Do not commit `private-key.json`.
+to overwrite existing key files (exit 2). Do not commit `private-key.json`.
 
 ## audit
 
 `pos-cli audit verify FILE` checks the hash chain (exit 0 ok, 2 tampered or corrupt, 3 unreadable).
-`pos-cli audit tail FILE -n N` prints the last N records. Removal of the newest records is not
+`pos-cli audit tail FILE -n N` prints the last N records; it loads the log the same way,
+so the same exit codes apply (an unreadable file is 3 for either subcommand). Removal of the newest records is not
 detectable.
 
 ## update
