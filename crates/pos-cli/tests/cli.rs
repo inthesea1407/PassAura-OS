@@ -1719,3 +1719,83 @@ fn sha2_digest(bytes: &[u8]) -> Vec<u8> {
     use sha2::{Digest, Sha256};
     Sha256::digest(bytes).to_vec()
 }
+
+// --- keygen and audit edges -------------------------------------------------
+
+#[test]
+fn keygen_partial_state_refuses_and_writes_nothing() {
+    // Only the private key exists: refuse, and never write a half keyring
+    // alongside someone else's key.
+    let dir = TempDir::new().unwrap();
+    let out = dir.path().join("k");
+    fs::create_dir_all(&out).unwrap();
+    fs::write(out.join("private-key.json"), "{}").unwrap();
+    bin()
+        .args(["keygen", "--out", out.to_str().unwrap()])
+        .assert()
+        .code(2);
+    assert!(!out.join("keyring.json").exists());
+
+    // Only the keyring exists: refuse, and never write a new private key
+    // that would not match it.
+    let out2 = dir.path().join("k2");
+    fs::create_dir_all(&out2).unwrap();
+    fs::write(out2.join("keyring.json"), "{}").unwrap();
+    bin()
+        .args(["keygen", "--out", out2.to_str().unwrap()])
+        .assert()
+        .code(2);
+    assert!(!out2.join("private-key.json").exists());
+}
+
+#[test]
+fn keygen_key_id_is_derived_from_the_public_key() {
+    let dir = TempDir::new().unwrap();
+    let out = dir.path().join("keys");
+    bin()
+        .args(["keygen", "--out", out.to_str().unwrap()])
+        .assert()
+        .code(0);
+    let kr: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("keyring.json")).unwrap()).unwrap();
+    let key = &kr["keys"][0];
+    let id = key["key_id"].as_str().unwrap();
+    let pk = key["public_key_hex"].as_str().unwrap();
+    assert_eq!(id, format!("ed25519:{}", &pk[..16]));
+    let private: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("private-key.json")).unwrap()).unwrap();
+    assert_eq!(private["key_id"].as_str().unwrap(), id);
+    assert_eq!(private["private_key_hex"].as_str().unwrap().len(), 64);
+}
+
+#[test]
+fn audit_tail_edges() {
+    use pos_core::audit::{AuditEvent, AuditLog, FixedClock};
+    let dir = TempDir::new().unwrap();
+    let f = dir.path().join("a.jsonl");
+    let mut log = AuditLog::with_clock(FixedClock(100));
+    log.append(AuditEvent::GateAllowed);
+    log.append(AuditEvent::GateDenied);
+    log.save_to_file(&f).unwrap();
+
+    // -n beyond the record count prints everything, still exit 0.
+    bin()
+        .args(["audit", "tail", "-n", "50"])
+        .arg(&f)
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("GateAllowed"))
+        .stdout(predicate::str::contains("GateDenied"));
+
+    // Same failure codes as verify: unreadable 3, corrupt 2.
+    bin()
+        .args(["audit", "tail"])
+        .arg(dir.path().join("missing"))
+        .assert()
+        .code(3);
+    let t = fs::read_to_string(&f)
+        .unwrap()
+        .replace("gate_denied", "gate_allowed");
+    fs::write(&f, t).unwrap();
+    bin().args(["audit", "tail"]).arg(&f).assert().code(2);
+}
