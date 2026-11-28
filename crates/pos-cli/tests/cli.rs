@@ -1516,3 +1516,206 @@ fn update_missing_envelope_is_exit2() {
         .assert()
         .code(2);
 }
+
+// --- store pre-review checks (review-check) --------------------------------
+// Store-side tooling: reads only the submitted .deb file, never a runner or
+// the network. Exit 0 pass, 2 check failure, 4 usage error.
+
+/// A minimal real .deb (ar of debian-binary + control.tar + data.tar.xz),
+/// modeled on the review_check_tests fixture in src/main.rs.
+fn review_deb(package: &str, version: &str, scripts: &[(&str, &str)]) -> Vec<u8> {
+    fn tar_header(name: &str, size: usize) -> [u8; 512] {
+        let mut h = [0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..108].copy_from_slice(b"0000644\0");
+        h[124..136].copy_from_slice(format!("{:011o}\0", size).as_bytes());
+        h[156] = b'0';
+        h
+    }
+    let control = format!("Package: {package}\nVersion: {version}\nArchitecture: all\n");
+    let mut tar = Vec::new();
+    let push = |tar: &mut Vec<u8>, name: &str, data: &[u8]| {
+        tar.extend_from_slice(&tar_header(name, data.len()));
+        tar.extend_from_slice(data);
+        tar.resize(tar.len().div_ceil(512) * 512, 0);
+    };
+    push(&mut tar, "./control", control.as_bytes());
+    for (n, body) in scripts {
+        push(&mut tar, &format!("./{n}"), body.as_bytes());
+    }
+    tar.resize(tar.len() + 1024, 0);
+    let member = |name: &str, data: &[u8]| {
+        let mut v = format!(
+            "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
+            format!("{name}/"),
+            0,
+            0,
+            0,
+            "100644",
+            data.len()
+        )
+        .into_bytes();
+        v.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            v.push(b'\n');
+        }
+        v
+    };
+    let mut deb = b"!<arch>\n".to_vec();
+    deb.extend(member("debian-binary", b"2.0\n"));
+    deb.extend(member("control.tar", &tar));
+    deb.extend(member("data.tar.xz", b"placeholder"));
+    deb
+}
+
+fn review_args(
+    deb: &std::path::Path,
+    sha256: &str,
+    name: &str,
+    version: Option<&str>,
+) -> Vec<String> {
+    let mut a = vec![
+        "review-check".to_string(),
+        "--deb".to_string(),
+        deb.to_str().unwrap().to_string(),
+        "--sha256".to_string(),
+        sha256.to_string(),
+        "--name".to_string(),
+        name.to_string(),
+    ];
+    if let Some(v) = version {
+        a.push("--version".to_string());
+        a.push(v.to_string());
+    }
+    a
+}
+
+#[test]
+fn review_check_missing_file_is_exit4() {
+    let dir = TempDir::new().unwrap();
+    bin()
+        .args(review_args(
+            &dir.path().join("nope.deb"),
+            &"a".repeat(64),
+            "hello-app",
+            None,
+        ))
+        .assert()
+        .code(4);
+}
+
+#[test]
+fn review_check_unsafe_name_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, DEB).unwrap();
+    bin()
+        .args(review_args(&deb, &deb_sha(), "bad;name", None))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("safe-name"));
+}
+
+#[test]
+fn review_check_uppercase_hash_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, DEB).unwrap();
+    bin()
+        .args(review_args(
+            &deb,
+            &deb_sha().to_uppercase(),
+            "hello-app",
+            None,
+        ))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("64 lowercase hex"));
+}
+
+#[test]
+fn review_check_hash_mismatch_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, DEB).unwrap();
+    bin()
+        .args(review_args(&deb, &"b".repeat(64), "hello-app", None))
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("hash mismatch"));
+}
+
+#[test]
+fn review_check_clean_pass_is_exit0() {
+    let dir = TempDir::new().unwrap();
+    let bytes = review_deb(
+        "hello-app",
+        "1.0",
+        &[("postinst", "#!/bin/sh\nset -e\nldconfig\n")],
+    );
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, &bytes).unwrap();
+    bin()
+        .args(review_args(
+            &deb,
+            &hex_lower(&sha2_digest(&bytes)),
+            "hello-app",
+            Some("1.0"),
+        ))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("review-check passed"))
+        .stdout(predicate::str::contains("1 maintainer script(s) scanned"));
+}
+
+#[test]
+fn review_check_warn_only_is_exit0() {
+    let dir = TempDir::new().unwrap();
+    let bytes = review_deb(
+        "doc-app",
+        "1.0",
+        &[("postinst", "#!/bin/sh\necho see https://x.example/docs\n")],
+    );
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, &bytes).unwrap();
+    bin()
+        .args(review_args(
+            &deb,
+            &hex_lower(&sha2_digest(&bytes)),
+            "doc-app",
+            None,
+        ))
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("WARN:"))
+        .stdout(predicate::str::contains("review-check passed"));
+}
+
+#[test]
+fn review_check_fail_finding_is_exit2() {
+    let dir = TempDir::new().unwrap();
+    let bytes = review_deb(
+        "evil-app",
+        "1.0",
+        &[("postinst", "#!/bin/sh\nmkfs.ext4 /dev/sda1\n")],
+    );
+    let deb = dir.path().join("p.deb");
+    fs::write(&deb, &bytes).unwrap();
+    bin()
+        .args(review_args(
+            &deb,
+            &hex_lower(&sha2_digest(&bytes)),
+            "evil-app",
+            None,
+        ))
+        .assert()
+        .code(2)
+        .stdout(predicate::str::contains("FAIL:"))
+        .stderr(predicate::str::contains("review-check FAILED"));
+}
+
+/// sha256 of arbitrary bytes through the test-only sha2 dev-dependency.
+fn sha2_digest(bytes: &[u8]) -> Vec<u8> {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes).to_vec()
+}
